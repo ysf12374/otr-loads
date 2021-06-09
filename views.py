@@ -13,6 +13,7 @@ from django.core.files.base import ContentFile
 from django.utils.encoding import smart_str
 from django.http import JsonResponse
 from django.db import connection as conn
+from django.views.decorators.clickjacking import xframe_options_exempt
 
 # from django.contrib.gis.geos import Point
 # from django.contrib.gis.geos import GEOSGeometry
@@ -28,6 +29,7 @@ import re
 import secrets
 from time import sleep,time
 from datetime import datetime,timedelta
+from dateutil.relativedelta import relativedelta
 import logging
 import requests as rqs
 from blogs.models import *
@@ -41,6 +43,7 @@ import plotly.graph_objects as go
 import matplotlib
 import random
 import numpy as np
+from collections import Counter
 import pickle
 import shapely
 import geopandas as gp
@@ -53,6 +56,28 @@ from sqlite3 import Error
 import sqlite3 as lite
 from math import*
 from scipy.spatial.distance import cdist
+import h3
+import geopandas as gp
+from shapely.geometry import Polygon
+from shapely import wkt
+import psycopg2
+from csp.decorators import csp
+import pyproj
+geod = pyproj.Geod(ellps='WGS84')
+import math # or numpy
+
+DATE2STR = psycopg2.extensions.new_type(
+    psycopg2.extensions.DATE.values,
+    'DATE2STR',
+    lambda value, curs:
+        str(value) if value is not None else None)
+
+psycopg2.extensions.register_type(DATE2STR)
+
+def get_last_months(start_date, months):
+    for i in range(months):
+        yield (start_date.year,start_date.month)
+        start_date += relativedelta(months = -1)
 
 us_state_abbrev = {
 	    'Alabama': 'AL',
@@ -160,61 +185,19 @@ trucks_dtype={
 # df_load = pd.read_csv(dirz+"MAP_loads.csv",
 # 		parse_dates=['asset_status_created_date'],
 # 	                 dtype=loads_dtype)
-df_load = pd.read_sql("select * from import.loads_raw LIMIT 10000;",conn)
+df_load = pd.read_sql("select * from import.loads_raw LIMIT 1000;",conn)
 # dirz=f"{os.getcwd()}/trucks/"
 # df_truck = pd.read_csv(dirz+"MAP_trucks.csv",
 # 				parse_dates=['asset_status_created_date'],
 # 			                 dtype=trucks_dtype)
-df_truck = pd.read_sql("select * from import.trucks_raw LIMIT 10000;",conn)
+df_truck = pd.read_sql("select * from import.trucks_raw LIMIT 1000;",conn)
 
-dirz=f"{os.getcwd()}/usa+map/500Cities_City_11082016/CityBoundaries.shp"
-shp = gp.GeoDataFrame.from_file(dirz)
-shp.to_crs(epsg=4326, inplace=True)
-pops=shp['POP2010'].values.tolist()
-features1=[]
-locations_data1=[]
-for i in shp.itertuples():
-	if type(i[8])==shapely.geometry.polygon.Polygon:
-		coords = list(i[8].exterior.coords)
-		coordz=[[x[0],x[1]] for x in coords]
-		# poly_=str(i[8]).replace("POLYGON ((","").replace("))","").replace(")","").replace("(","")
-		# poly=poly_.split(",")
-		# poly=[x.strip() for x in poly]
-		# poly=[[float(x.split(" ")[0]),float(x.split(" ")[1])] for x in poly]
+with open(f"{os.getcwd()}/locations_data1.txt", "rb") as fp:   # Unpickling
+  locations_data1 = pickle.load(fp) 
 
-		loc_data=str(i[3])+" "+str(i[1])
-		locations_data1.append(loc_data)
-		pop=i[6]/max(pops)
-		pop=i[6]
-		features1.append({
-			"type": "Feature",
-			"properties": {"id":i[0],"pop":pop,"name":loc_data},
-			"geometry": {
-				"type": "Polygon",
-				"coordinates": [coordz]
-			}
-		})
-	else:
-		locations_data1.append(str(i[3])+" "+str(i[1]))
-		for j in i[8]:
-			coords = list(j.exterior.coords)
-			coordz=[[x[0],x[1]] for x in coords]
-			# poly_=str(i[8]).replace("POLYGON ((","").replace("))","").replace(")","").replace("(","")
-			# poly=poly_.split(",")
-			# poly=[x.strip() for x in poly]
-			# poly=[[float(x.split(" ")[0]),float(x.split(" ")[1])] for x in poly]
+with open(f"{os.getcwd()}/features1.txt", "rb") as fp:   # Unpickling
+  features1 = pickle.load(fp) 
 
-			loc_data=str(i[3])+" "+str(i[1])
-			pop=i[6]
-			features1.append({
-				"type": "Feature",
-				"properties": {"id":i[0],"pop":pop,"name":loc_data},
-				"geometry": {
-					"type": "Polygon",
-					"coordinates": [coordz]
-				}
-			})
-locations_data1=str(sorted(list(set(locations_data1))))[1:-1]
 
 zone_df2=pd.read_csv(f"{os.getcwd()}/zipcode.csv",dtype={'zip':str})
 
@@ -225,55 +208,65 @@ zone_df2['location'] = zone_df2['location'].str.upper()
 dct={}
 for i in zone_df2.itertuples():
     dct[i[8]]=i[1][0]
+
+
+now = datetime.now()
+if len(str(now.month))<2:
+	month_x='0'+str(now.month)
+else:
+	month_x=str(now.month)
+year_x=str(now.year)
+lmonths=[i for i in get_last_months(datetime.today(), 3)]
+lm=[]
+for x in lmonths:
+    if  len(str(x[1]))<2:
+        lm.append((x[0],'0'+str(x[1])))
+    else:
+        lm.append((x[0],x[1]))
 df_gd=pd.read_csv(f"{os.getcwd()}/gold_data/gold_wanted_customer_05032021_.csv",
                parse_dates=['booked_on'])
 df_gd['travel_data']=df_gd[['origin_data', 'destination_data']].agg('->'.join, axis=1)
 
-dirz=f"{os.getcwd()}/cb_2018_us_state_500k/cb_2018_us_state_500k.shp"
-df_st= gp.GeoDataFrame.from_file(dirz)
-df_st.to_crs(epsg=4326, inplace=True)
-pops=df_st['ALAND'].values.tolist()
-features=[]
-locations_data=[]
-for i in df_st.itertuples():
-	if type(i[-1])==shapely.geometry.polygon.Polygon:
-		coords = list(i[-1].exterior.coords)
-		coordz=[[x[0],x[1]] for x in coords]
-		# poly_=str(i[8]).replace("POLYGON ((","").replace("))","").replace(")","").replace("(","")
-		# poly=poly_.split(",")
-		# poly=[x.strip() for x in poly]
-		# poly=[[float(x.split(" ")[0]),float(x.split(" ")[1])] for x in poly]
+# df_gd=pd.read_sql(f"select * from gold_oldnew \
+#                       ;",conn,parse_dates={'booked_on': {'format': '%Y-%m-%d'},
+#                                                                                'picked_up_by': {'format': '%Y-%m-%d %H:%M:%S'},
+#                                                                                'delivered_on': {'format': '%Y-%m-%d %H:%M:%S'}})#where booked_on LIKE '{str(lm[0][0])}-{str(lm[0][1])}%' or \
+#                 #   booked_on LIKE '{str(lm[1][0])}-{str(lm[1][1])}%' or booked_on LIKE '{str(lm[2][0])}-{str(lm[2][1])}%'
+# df_gd['origin_data'] = df_gd[['origin_state_province','origin_city']].apply(lambda row: ' '.join(row.values.astype(str)), axis=1)
 
-		loc_data=str(i[5])+" "+str(i[6])
-		pop=(i[8]/max(pops))
-		features.append({
-			"type": "Feature",
-			"properties": {"id":i[0],"pop":pop,"name":loc_data},
-			"geometry": {
-				"type": "Polygon",
-				"coordinates": [coordz]
-			}
-		})
-	else:
-		locations_data.append(str(i[3])+" "+str(i[1]))
-		for j in i[-1]:
-			coords = list(j.exterior.coords)
-			coordz=[[x[0],x[1]] for x in coords]
-			# poly_=str(i[8]).replace("POLYGON ((","").replace("))","").replace(")","").replace("(","")
-			# poly=poly_.split(",")
-			# poly=[x.strip() for x in poly]
-			# poly=[[float(x.split(" ")[0]),float(x.split(" ")[1])] for x in poly]
+# df_gd['destination_data'] = df_gd[['destination_state_province','destination_city']].apply(lambda row: ' '.join(row.values.astype(str)), axis=1)
 
-			loc_data=str(i[5])+" "+str(i[6])
-			pop=(i[8]/max(pops))
-			features.append({
-				"type": "Feature",
-				"properties": {"id":i[0],"pop":pop,"name":loc_data},
-				"geometry": {
-					"type": "Polygon",
-					"coordinates": [coordz]
-				}
-			})
+# df_gd['origin_data'] = df_gd['origin_data'].str.upper()
+# df_gd['destination_data'] = df_gd['destination_data'].str.upper()
+
+# df_gd['origin_zone'] = df_gd[['origin_data','id']].apply(lambda row: dct.get(row['origin_data'],'x'), axis=1)
+
+# df_gd['destination_zone'] = df_gd[['destination_data','id']].apply(lambda row: dct.get(row['destination_data'],'x'), axis=1)
+
+# df_gd=df_gd[~df_gd['booked_on'].astype(str).str.startswith('N')]
+# # df_gd['created_at'] = df_gd['booked_on'].map(lambda x: x.strftime('%Y-%m-%d'))
+# df_gd['created_week']=df_gd['booked_on'].apply(lambda x : x.strftime("%U"))#%U#%W
+# df_gd['created_week']=df_gd['created_week'].astype(int)
+# df_gd['created_year']=df_gd['booked_on'].apply(lambda x : x.strftime("%Y"))
+# df_gd['created_year']=df_gd['created_year'].astype(int)
+# df_gd['created_month']=df_gd['booked_on'].apply(lambda x : x.strftime("%B"))
+# df_gd['created_month_num']=df_gd['booked_on'].apply(lambda x : x.strftime("%m"))
+# df_gd['created_month_num']=df_gd['created_month_num'].astype(int)
+
+# df_gd=df_gd[(df_gd['origin_zone']!='x') & (df_gd['destination_zone']!='x')]
+
+# df_gd=df_gd[~((df_gd['destination_lat'].astype(str).str.startswith('nan')) |\
+#                 (df_gd['origin_lat'].astype(str).str.startswith('nan')))]
+# df_gd['year_week']=df_gd['created_year'].astype(str)+df_gd['created_week'].astype(str)
+# df_gd['duration']=(df_gd['picked_up_by'] - df_gd['booked_on']) / pd.Timedelta(hours=1)
+# df_gd['travel_data']=df_gd[['origin_data', 'destination_data']].agg('->'.join, axis=1)
+# df_gd.to_csv(f"{os.getcwd()}/gold_data/gold_wanted_customer_05032021__.csv",index=[0])
+
+with open(f"{os.getcwd()}/locations_data.txt", "rb") as fp:   # Unpickling
+  locations_data = pickle.load(fp) 
+
+with open(f"{os.getcwd()}/features.txt", "rb") as fp:   # Unpickling
+  features = pickle.load(fp) 
 
 
 with open(f"{os.getcwd()}/lanes/lanes.txt", "rb") as fp:   # Unpickling
@@ -305,6 +298,31 @@ with open(f"{os.getcwd()}/customers/all_prices_customers.txt", "rb") as fp:   # 
 with open(f"{os.getcwd()}/customers/all_loads_customers.txt", "rb") as fp:   # Unpickling
   all_loads_customers = pickle.load(fp)
 
+dirz=f"{os.getcwd()}/cb_2018_us_nation_5m/cb_2018_us_nation_5m.shp"
+usa = gp.GeoDataFrame.from_file(dirz)
+usa.to_crs(epsg=4326, inplace=True)
+
+hexes=pd.read_sql("select tile_id,ST_AsText(geom) as geom from usa_hex_3",conn)
+hexes['geom'] = gp.GeoSeries.from_wkt(hexes['geom'])
+hexes = gp.GeoDataFrame(hexes, geometry='geom')
+
+locx=pd.read_sql("select distinct origin_state,origin_city, destination_state,\
+               destination_city from otr_data_loads where origin_state IS NOT NULL ",conn)
+states_list=list(set(locx['origin_state'].values.tolist()+locx['destination_state'].values.tolist()))
+states_list=[x for x in states_list if x]
+states_list=sorted(states_list)
+cities_list=list(set(locx['origin_city'].values.tolist()+locx['destination_city'].values.tolist()))
+cities_list=[x for x in cities_list if x]
+cities_list=sorted(cities_list)
+# df_otr=pd.read_sql("""SELECT odl.*,hexes.geom,hexes.tile_id,
+# 				ST_AsText(odl.lane_line_str) as lane_geom
+# FROM
+# 	usa_hex_3 AS hexes
+# 	INNER JOIN
+# 	otr_data_loads AS odl
+# 	ON ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry) LIMIT 10000;""",conn)
+
+
 
 def jaccard_similarity(x,y):
  
@@ -312,11 +330,12 @@ def jaccard_similarity(x,y):
     union_cardinality = len(set.union(*[set(x), set(y)]))
     return intersection_cardinality/float(union_cardinality)
 
-
+@xframe_options_exempt
 def index(response):
 	print(os.getcwd())
 	return render(response ,'blogs/index.html')
 
+@xframe_options_exempt
 def network_graph1(response):
 
 	dff = pd.read_csv(f"{os.getcwd()}/trucks_loads_2019_small.csv",index_col=0)
@@ -572,6 +591,7 @@ def network_graph1(response):
 		'locations':locations,
 		'physics':physics})
 
+@xframe_options_exempt
 def graph_plotly(response):
 	df=df_load.copy()
 	df_from=df[df['origin_data']=='NE OMAHA']
@@ -617,6 +637,7 @@ def graph_plotly(response):
 	context = {'graph': graph}
 	return render(response ,'blogs/graph.html',context)
 
+@xframe_options_exempt
 def load_v_trucks(response):
 	cat=response.GET.get('cat',None)
 	
@@ -722,6 +743,7 @@ def load_v_trucks(response):
 	context['graph1'] = graph1
 	return render(response ,'blogs/loads_v_trucks.html',context)
 
+@xframe_options_exempt
 def map_arc(response):
 	cat=response.GET.get('cat',None)
 
@@ -818,6 +840,7 @@ def map_arc(response):
 	context = {'graph': graph}
 	return render(response ,'blogs/map_arc.html',context)
 
+@xframe_options_exempt
 def map_heat(response):
 	tdf=df_truck.copy()
 	tdf_from=tdf[tdf['origin_data']=='NE OMAHA']
@@ -839,6 +862,7 @@ def map_heat(response):
 	return render(response ,'blogs/map_heat.html',
 		{'locations':locations})
 
+@xframe_options_exempt
 def map_time(response):
 
 	state_city=response.GET.get('State_City',None)
@@ -934,6 +958,7 @@ def map_time(response):
 	context = {'graph': graph,'state_cities':state_cities}
 	return render(response ,'blogs/map_time.html',context)
 
+@xframe_options_exempt
 def load_line(response):
 	
 	selected_states=[x[1] for x in us_state_abbrev.items()]
@@ -1000,6 +1025,7 @@ def load_line(response):
 		"graph2":graph2}
 	return render(response ,'blogs/load_line.html',context)
 
+@xframe_options_exempt
 def load_line1(response):
 	selected_states=[x[1] for x in us_state_abbrev.items()]
 
@@ -1065,10 +1091,12 @@ def load_line1(response):
 		"graph2":graph2}
 	return render(response ,'blogs/load_line.html',context)
 
+@xframe_options_exempt
 def just_map_heat_api(response):
 	lon=response.GET.get('lon',None)
 	lat=response.GET.get('lat',None)
 	dist=response.GET.get('dist',None)
+	"""
 	df=pd.read_sql("SELECT asset_assetId,\
 		asset_equipment_destination_place_namedcoordinates_latitude,\
 		asset_equipment_destination_place_namedcoordinates_longitude,\
@@ -1076,6 +1104,10 @@ def just_map_heat_api(response):
 		asset_equipment_origin_namedcoordinates_longitude\
 	 FROM import.trucks_raw where cast(created_week as int)>12 and \
 		cast(created_week as int)<17 and origin_zone!='x'",con=conn)
+	"""
+	df= pd.read_sql("select * from import.trucks_raw where \
+		 created_at LIKE '2021-04%' or created_at LIKE '2021-05%' \
+			   LIMIT 10000;",conn)
 	df_map=df.groupby(['asset_equipment_destination_place_namedcoordinates_latitude',
 	                   'asset_equipment_destination_place_namedcoordinates_longitude',
 	                        'asset_equipment_origin_namedcoordinates_latitude',
@@ -1094,19 +1126,25 @@ def just_map_heat_api(response):
 	for i in df_map.itertuples():
 		distances.append(geod.inv(x1, y1, float(i[2]), float(i[1]))[2])
 		if geod.inv(x1, y1, float(i[2]), float(i[1]))[2]<=(float(dist)+5)*1000:
-			locations.append([i[1],i[2],i[6]])
+			# locations.append([i[1],i[2],i[6]])
+			locations.append([i[1],i[2],8])
 	data={"locations":locations}
 	return JsonResponse(data)
 
+@xframe_options_exempt
 def just_map_cities(response):
+	
+
 	deetz={
 	    "type": "FeatureCollection",
 	    "features": features1
 	}
 	return JsonResponse({"feats":deetz})
 
+@xframe_options_exempt
 def just_map(response):
 
+	
 
 	# with open('state_city.txt', 'w') as f:
 	# 	pickle.dump(locations_data, f)
@@ -1155,7 +1193,10 @@ def just_map(response):
 	# return JsonResponse({"feats":deetz})
 	return render(response ,'blogs/just_map1.html',{"feats":deetz})
 
+@xframe_options_exempt
 def just_map_api(response):
+	
+
 	np.random.shuffle(COLOURS)
 	name=response.GET.get('name',None)
 	name=name.replace('.','').replace("'",'')
@@ -1341,7 +1382,10 @@ def just_map_api(response):
 	"arcs":arcs,"lat":lat,"lon":lon,"all_dest":all_dest}
 	return JsonResponse(data)
 
+@xframe_options_exempt
 def just_map_api_2(response):
+	
+
 	np.random.shuffle(COLOURS)
 	name=response.GET.get('name',None)
 	name=name.replace('.','').replace("'",'')
@@ -1437,7 +1481,10 @@ def just_map_api_2(response):
 	} 
 	return JsonResponse({"data":final_data,"final_data3":final_data3})
 
+@xframe_options_exempt
 def network_graph(response):
+	
+
 	df1 = df_load.copy()
 
 	df2 = df_truck.copy()
@@ -1653,7 +1700,9 @@ def network_graph(response):
 		'locations':sorted(td),
 		'physics':physics})
 
+@xframe_options_exempt
 def network_graph_all(response):
+	
 
 	loads_dtype={
 	         'created_week': int,
@@ -1861,7 +1910,10 @@ def network_graph_all(response):
 		'edges':edges,
 		'physics':physics})
 
+@xframe_options_exempt
 def just_map_v2(response):
+	
+
 	df=df_gd.copy()
 	customer=response.GET.get('customer',None)
 	
@@ -1886,7 +1938,10 @@ def just_map_v2(response):
 		"shippers":sorted(df1['shipper'].unique().tolist()),
 		"receivers":sorted(df1['receiver'].unique().tolist())})
 
+@xframe_options_exempt
 def just_map_v3(response):
+	
+
 	df=df_gd.copy()
 	customer=response.GET.get('customer',None)
 	
@@ -1911,7 +1966,10 @@ def just_map_v3(response):
 		"shippers":sorted(df1['shipper'].unique().tolist()),
 		"receivers":sorted(df1['receiver'].unique().tolist())})
 
+@xframe_options_exempt
 def just_map_v2_api(response):
+	
+
 	customer=response.GET.get('customer',None)
 	shipper=response.GET.get('shipper',None)
 	receiver=response.GET.getlist('receiver[]',None)
@@ -1976,7 +2034,10 @@ def just_map_v2_api(response):
 		"shippers":shippers.index[0:10].tolist(),
 		"receivers":receivers.index[0:10].tolist()})
 
+@xframe_options_exempt
 def just_map_v3_api(response):
+	
+
 	customer=response.GET.get('customer',None)
 	shipper=response.GET.get('shipper',None)
 	receiver=response.GET.getlist('receiver[]',None)
@@ -2040,7 +2101,10 @@ def just_map_v3_api(response):
 		"shippers":sorted(df1['shipper'].unique().tolist()),
 		"receivers":sorted(df1['receiver'].unique().tolist())})
 
+@xframe_options_exempt
 def just_map_v2_heat_api(response):
+	
+
 	customer=response.GET.get('customer',None)
 	shipper=response.GET.get('shipper',None)
 	receiver=response.GET.getlist('receiver[]',None)
@@ -2084,7 +2148,10 @@ def just_map_v2_heat_api(response):
 	return JsonResponse({"receiver":receiver,
 						"shipper":shipper})
 
+@xframe_options_exempt
 def just_map_v2_circles(response):
+	
+
 	customer=response.GET.get('customer',None)
 	shipper=response.GET.get('shipper',None)
 	receiver=response.GET.getlist('receiver[]',None)
@@ -2134,7 +2201,10 @@ def just_map_v2_circles(response):
 
 	return JsonResponse({"circles":circles})
 
+@xframe_options_exempt
 def just_map_v4(response):
+	
+
 	deetz={
 	    "type": "FeatureCollection",
 	    "features": features
@@ -2144,7 +2214,10 @@ def just_map_v4(response):
 	return render(response ,'blogs/just_map_v4.html',{"feats":deetz,
 		"customers":sorted(df['customer'].unique().tolist())})
 
+@xframe_options_exempt
 def just_map_v4_shipper_api(response):
+	
+
 	customer=response.GET.get('customer',None)
 	if customer=='' or customer=='x':
 		customer='DOW CHEMICAL COMPANY C/O XPO LOGISTICS'
@@ -2156,7 +2229,10 @@ def just_map_v4_shipper_api(response):
 
 	return JsonResponse({"shippers":shippers.index[0:10].tolist()})
 
+@xframe_options_exempt
 def just_map_v4_receiver_api(response):
+	
+
 	customer=response.GET.get('customer',None)
 	if customer=='' or customer=='x':
 		customer='DOW CHEMICAL COMPANY C/O XPO LOGISTICS'
@@ -2173,7 +2249,10 @@ def just_map_v4_receiver_api(response):
 
 	return JsonResponse({"receivers":receivers.index[0:10].tolist()})
 
+@xframe_options_exempt
 def just_map_v4_api(response):
+	
+
 	df = df_gd.copy()
 	customer=response.GET.get('customer',None)
 	shipper=response.GET.get('shipper',None)
@@ -2253,19 +2332,23 @@ def just_map_v4_api(response):
 		"shippers":sorted(df1['shipper'].unique().tolist()),
 		"receivers":sorted(df1['receiver'].unique().tolist())})
 
+@xframe_options_exempt
 def just_map_v5(response):
 	deetz={
 	    "type": "FeatureCollection",
 	    "features": features
 	}
 	df=df_gd.copy()
+	
 
 	return render(response ,'blogs/just_map_v6.html',{"feats":deetz,
 		"customers":sorted(df['customer'].unique().tolist())})
 
+@xframe_options_exempt
 def just_map_v5_shipper_api(response):
 	customer=response.GET.getlist('customer[]',None)
-	print(customer)
+	
+
 	if customer=='' or customer==['x'] or customer==['ALL']:
 		customer=[]
 	if not customer:
@@ -2292,7 +2375,10 @@ def just_map_v5_shipper_api(response):
 	"origin_ct":sorted(origin_city),
 	"destination_ct":sorted(destination_city)})
 
+@xframe_options_exempt
 def just_map_v5_receiver_api(response):
+	
+
 	customer=response.GET.getlist('customer[]',None)
 	if customer=='' or customer==['x'] or customer==['ALL']:
 		customer=[]
@@ -2310,8 +2396,10 @@ def just_map_v5_receiver_api(response):
 
 	return JsonResponse({"receivers":receivers_vals})
 
+@xframe_options_exempt
 def just_map_v5_api(response):
 	df = df_gd.copy()
+	
 
 	colors={"Standard Van 53":"#FA3005",
 	        "Standard Reefer 53":"#1700FF",
@@ -2395,6 +2483,7 @@ def just_map_v5_api(response):
 		"shippers":sorted(df1['shipper'].unique().tolist()),
 		"receivers":sorted(df1['receiver'].unique().tolist())})
 
+@xframe_options_exempt
 def just_map_v5_time_api(response):
 	df = df_gd.copy()
 	times=response.GET.get('times',None)
@@ -2459,7 +2548,10 @@ def just_map_v5_time_api(response):
 		df1=df1[df1['origin_city'].isin(origin_ct)]
 	destination_ct=response.GET.getlist('destination_ct[]',None)
 	if destination_ct:
-		df1=df1[df1['destination_city'].isin(destination_ct)]	
+		df1=df1[df1['destination_city'].isin(destination_ct)]
+
+
+
 	df_map=df1.groupby(['origin_data','destination_data']).agg({"id":"count",
                                                 "equipment_type":"max",
 												"duration":"mean"}).reset_index()
@@ -2504,14 +2596,18 @@ def just_map_v5_time_api(response):
 					width,
 					colors[i[4]],
 					[popup],
-					i[5]])
+					i[5],
+					i[1],
+					i[2]])
 
 	return JsonResponse({"error":[False],"data":data,
 		"shippers":sorted(df1['shipper'].unique().tolist()),
 		"receivers":sorted(df1['receiver'].unique().tolist())})
 
+@xframe_options_exempt
 def just_map_v5_heat_api(response):
 	df = df_gd.copy()
+	
 
 	colors={"Standard Van 53":"#FA3005",
 	        "Standard Reefer 53":"#1700FF",
@@ -2577,8 +2673,11 @@ def just_map_v5_heat_api(response):
 	return JsonResponse({"receiver":receiver,
 						"shipper":shipper})
 
+@xframe_options_exempt
 def just_map_v5_time_heat_api(response):
 	df = df_gd.copy()
+	
+
 	times=response.GET.get('times',None)
 	if times:
 		date=times
@@ -2653,7 +2752,10 @@ def just_map_v5_time_heat_api(response):
 	return JsonResponse({"receiver":receiver,
 						"shipper":shipper})
 
+@xframe_options_exempt
 def just_map_get_slider_values(response):
+	
+
 	year=response.GET.get('year',None)
 	week_month=response.GET.get('week_month',None)
 	if not year:
@@ -2668,7 +2770,10 @@ def just_map_get_slider_values(response):
 		sliders=sorted(df['created_month_num'].unique().tolist())
 	return JsonResponse({"sliders":sliders})
 
+@xframe_options_exempt
 def just_map_v7_slider(response):
+	
+
 	df = df_gd.copy()
 	colors={"Standard Van 53":"#FA3005",
 	        "Standard Reefer 53":"#1700FF",
@@ -2734,7 +2839,10 @@ def just_map_v7_slider(response):
 	}
 	return JsonResponse({"all_sliders":[myData]})
 
+@xframe_options_exempt
 def just_map_v7(response):
+	
+
 	deetz={
 	    "type": "FeatureCollection",
 	    "features": features
@@ -2744,7 +2852,10 @@ def just_map_v7(response):
 	return render(response ,'blogs/just_map_v8.html',{"feats":deetz,
 		"customers":sorted(df['customer'].unique().tolist())})
 
+@xframe_options_exempt
 def just_map_v8_slider(response):
+	
+
 	df = df_gd.copy()
 	times=response.GET.get('times',None)
 	if times:
@@ -2847,7 +2958,10 @@ def just_map_v8_slider(response):
 		"shippers":sorted(df1['shipper'].unique().tolist()),
 		"receivers":sorted(df1['receiver'].unique().tolist())})
 
+@xframe_options_exempt
 def just_map_v9(response):
+	
+
 	deetz={
 	    "type": "FeatureCollection",
 	    "features": features
@@ -2857,7 +2971,10 @@ def just_map_v9(response):
 	return render(response ,'blogs/just_map_v9.html',{"feats":deetz,
 		"customers":sorted(df['customer'].unique().tolist())})
 
+@xframe_options_exempt
 def just_map_v9_time_api(response):
+	
+
 	df = df_gd.copy()
 	times=response.GET.get('times',None)
 	if times:
@@ -2960,7 +3077,10 @@ def just_map_v9_time_api(response):
 		"shippers":sorted(df1['shipper'].unique().tolist()),
 		"receivers":sorted(df1['receiver'].unique().tolist())})
 
+@xframe_options_exempt
 def just_map_v9_heat_chart(response):
+	
+
 	df = df_gd.copy()
 	selector=response.GET.get('week_month',None)
 	if not selector:
@@ -3041,7 +3161,10 @@ def just_map_v9_heat_chart(response):
 			"colorscale":ranges,
 			"xaxis":[str(x) for x in year_weeks]})
 
+@xframe_options_exempt
 def similar_lanes(response):
+	
+
 	df = df_gd.copy()
 	df=df[df['created_year']==2020]
 	year_weeks=df['year_week'].unique().tolist()
@@ -3121,7 +3244,9 @@ def similar_lanes(response):
 	data=[[x[1]]+x[0] for x in zip(data,dfx_map.index)]
 	return JsonResponse({"error":[False],"data":data})
 
+@xframe_options_exempt
 def just_heat_chart_v1(response):
+	
 
 	df=df_gd.copy()
 
@@ -3131,6 +3256,7 @@ def just_heat_chart_v1(response):
 		"origin_ct":sorted(df['origin_city'].unique().tolist()),
 		"destination_ct":sorted(df['destination_city'].unique().tolist())})
 
+@xframe_options_exempt
 def just_heat_chart_v1_api(response):
 	df = df_gd.copy()
 	customer=response.GET.getlist('customer[]',None)
@@ -3147,6 +3273,7 @@ def just_heat_chart_v1_api(response):
 		origin_st=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in origin_st]
 	if not origin_st:
 		origin_st=df['origin_state_province'].unique().tolist()
+	
 
 	destination_st=response.GET.getlist('destination_st[]',None)
 	if not destination_st:
@@ -3264,6 +3391,7 @@ def just_heat_chart_v1_api(response):
 			"year_week":year_weeks,
 			'all_prices':all_prices})
 
+@xframe_options_exempt
 def just_map_v11_time_api(response):
 	df = df_gd.copy()
 	times=response.GET.get('times',None)
@@ -3281,6 +3409,7 @@ def just_map_v11_time_api(response):
 	        "Standard Van 48":"#FF0000",
 	        "Standard Reefer 48":"#008FFF"}
 	
+
 	customer=response.GET.getlist('customer[]',None)
 	shipper=response.GET.getlist('shipper[]',None)
 	# print(customer,shipper)
@@ -3385,7 +3514,9 @@ def just_map_v11_time_api(response):
 						y,
 						width,
 						colors[i[5]],
-						[popup]])
+						[popup],
+						i[1],
+						i[2]])
 		all_data[week]=data
 
 	weekz={}
@@ -3399,12 +3530,14 @@ def just_map_v11_time_api(response):
 		"receivers":sorted(df1['receiver'].unique().tolist()),
 		"weeks":weeks})
 
+@xframe_options_exempt
 def just_map_v11(response):
 	deetz={
 	    "type": "FeatureCollection",
 	    "features": features
 	}
 	df=df_gd.copy()
+	
 
 	return render(response ,'blogs/just_map_v11.html',{"feats":deetz,
 		"customers":sorted(df['customer'].unique().tolist()),
@@ -3413,12 +3546,14 @@ def just_map_v11(response):
 		"origin_ct":sorted(df['origin_city'].unique().tolist()),
 		"destination_ct":sorted(df['destination_city'].unique().tolist())})
 
+@xframe_options_exempt
 def just_map_v12(response):
 	deetz={
 	    "type": "FeatureCollection",
 	    "features": features
 	}
 	df=df_gd.copy()
+	
 
 	return render(response ,'blogs/just_map_v12.html',{"feats":deetz,
 		"customers":sorted(df['customer'].unique().tolist()),
@@ -3427,8 +3562,10 @@ def just_map_v12(response):
 		"origin_ct":sorted(df['origin_city'].unique().tolist()),
 		"destination_ct":sorted(df['destination_city'].unique().tolist())})
 
+@xframe_options_exempt
 def just_heat_chart_v2(response):
 	df=df_gd.copy()
+	
 
 	return render(response ,'blogs/just_heat_chart_v2.html',{
 		"customers":sorted(df['customer'].unique().tolist()),
@@ -3437,6 +3574,7 @@ def just_heat_chart_v2(response):
 		"origin_ct":sorted(df['origin_city'].unique().tolist()),
 		"destination_ct":sorted(df['destination_city'].unique().tolist())})
 
+@xframe_options_exempt
 def just_map_v13(response):
 	deetz={
 	    "type": "FeatureCollection",
@@ -3451,6 +3589,1322 @@ def just_map_v13(response):
 		"origin_ct":sorted(df['origin_city'].unique().tolist()),
 		"destination_ct":sorted(df['destination_city'].unique().tolist())})
 
+@xframe_options_exempt
+def just_map_v15(response):
+	deetz={
+	    "type": "FeatureCollection",
+	    "features": features
+	}
+	df=df_gd.copy()
+
+	return render(response ,'blogs/just_map_v19.html',{"feats":deetz,
+		"customers":sorted(df['customer'].unique().tolist()),
+		"origin_st":[us_state_abbrev_codes[x]+f" ({x})" for x in sorted(df['origin_state_province'].unique().tolist())],
+		"destination_st":[us_state_abbrev_codes[x]+f" ({x})" for x in sorted(df['destination_state_province'].unique().tolist())],
+		"origin_ct":sorted(df['origin_city'].unique().tolist()),
+		"destination_ct":sorted(df['destination_city'].unique().tolist())})
+
+@xframe_options_exempt
+def just_map_v14(response):
+	deetz={
+	    "type": "FeatureCollection",
+	    "features": features
+	}
+	df=df_gd.copy()
+
+	return render(response ,'blogs/just_map_v17.html',{"feats":deetz,
+		"customers":sorted(df['customer'].unique().tolist()),
+		"origin_st":[us_state_abbrev_codes[x]+f" ({x})" for x in sorted(df['origin_state_province'].unique().tolist())],
+		"destination_st":[us_state_abbrev_codes[x]+f" ({x})" for x in sorted(df['destination_state_province'].unique().tolist())],
+		"origin_ct":sorted(df['origin_city'].unique().tolist()),
+		"destination_ct":sorted(df['destination_city'].unique().tolist())})
+
+@xframe_options_exempt
+def just_map_hex(response):	
+	# df=df_otr.copy()
+	times=response.GET.get('times',None)
+	if times:
+		date=times
+		date1=date.split(" ")[0]
+		date2=date.split(" ")[2]
+		datesss='05/31/2020 xxxxx 05/31/2021'
+		date1=datetime.strptime(date1, '%m/%d/%Y')
+		date2=datetime.strptime(date2, '%m/%d/%Y')
+		df=pd.read_sql(f"SELECT odl.*,hexes.geom,hexes.tile_id, \
+				ST_AsText(odl.lane_line_str) as lane_geom \
+	FROM \
+	usa_hex_2 AS hexes \
+	INNER JOIN \
+	otr_data_loads AS odl \
+	ON ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry) where odl.delivery_date \
+			BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}';",conn)
+		if len(df)<10:
+			date_now=datetime.now()
+			date_ago = datetime.today() - timedelta(days=45)
+			df=pd.read_sql(f"SELECT odl.*,hexes.geom,hexes.tile_id, \
+					ST_AsText(odl.lane_line_str) as lane_geom \
+	FROM \
+		usa_hex_2 AS hexes \
+		INNER JOIN \
+		otr_data_loads AS odl \
+		ON ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry) where odl.delivery_date \
+				BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND '{date_now.year}-{date_now.month}-{date_now.day}';",conn)
+
+	else:
+		date_now=datetime.now()
+		date_ago = datetime.today() - timedelta(days=45)
+		df=pd.read_sql(f"SELECT odl.*,hexes.geom,hexes.tile_id, \
+				ST_AsText(odl.lane_line_str) as lane_geom \
+	FROM \
+	usa_hex_2 AS hexes \
+	INNER JOIN \
+	otr_data_loads AS odl \
+	ON ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry) where odl.delivery_date \
+			BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND '{date_now.year}-{date_now.month}-{date_now.day}';",conn)
+
+	df_map=df.groupby(['origin_lat','origin_lng',
+						'destination_lat','destination_lng']).agg({"id":"count",
+                                                "equipment_type_id":"max",
+												"miles":"mean",
+												"lane_line_str":"first"}).reset_index()
+	coords=[]
+	eq_types=df_map['equipment_type_id'].unique().tolist()
+	max_counts=df_map['id'].max()
+	lst = range(1,60)
+	ranges=np.array_split(lst, 6)
+	colorheat=['#00A100','#128FD9','#FFB200','#FF0000','#008FFF','FF8B00']
+	for i in df_map.itertuples():
+		# color= '#FF00F3'
+		clr_ind=eq_types.index(i[6])
+		color=COLOURS[clr_ind]
+		# for k in enumerate(ranges):
+		# 	if i[5] in k[1]:
+		# 		color=colorheat[k[0]]
+		width=(int(i[5])/max_counts)*10
+		if width<1:
+			width=0.9
+		sss=[[i[1],i[2]],
+		[i[3],i[4]],
+		width,
+		color]
+		coords.append(sss)
+	
+	# coords=[x.__geo_interface__ for x in all_polys]
+	# deetz={
+	#     "type": "FeatureCollection",
+	#     "features": coords
+	# }
+
+	return JsonResponse({"error":[False],"data":coords})
+
+@xframe_options_exempt
+def just_map_line_graph(response):
+	origin=response.GET.get('origin',None)
+	destination=response.GET.get('destination',None)
+	print(origin,destination)
+	if not origin and not destination:
+		return JsonResponse({"error":[True]})
+	# df = df_gd.copy()
+	date_now=datetime.now()
+	date_ago = datetime.today() - timedelta(days=190)
+	df=pd.read_sql(f"SELECT * \
+		FROM \
+			gold_oldnew \
+		where ((origin_data='{origin}' AND destination_data='{destination}') \
+		OR (origin_data='{destination}' AND destination_data='{origin}')) AND (booked_on \
+					BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND '{date_now.year}-{date_now.month}-{date_now.day}')\
+						 ORDER BY booked_on DESC LIMIT 1000;",conn,
+					parse_dates=['booked_on'])
+	if len(df)<2:
+		date_ago = datetime.today() - timedelta(days=365)
+		df=pd.read_sql(f"SELECT * \
+			FROM \
+				gold_oldnew \
+			where ((origin_data='{origin}' AND destination_data='{destination}') \
+			OR (origin_data='{destination}' AND destination_data='{origin}')) AND (booked_on \
+						BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND '{date_now.year}-{date_now.month}-{date_now.day}') \
+							 ORDER BY booked_on DESC LIMIT 1000;",conn,
+						parse_dates=['booked_on'])
+	df_=df.copy()
+
+	# df=df[((df['origin_data']==origin) & (df['destination_data']==destination)) |\
+	# 	((df['origin_data']==destination) & (df['destination_data']==origin))]
+	# date_ago = datetime.today() - timedelta(days=150)
+	# mask = (df['booked_on'] > date_ago) & (df['booked_on'] <= date_now)
+	# df=df.loc[mask]
+	if len(df)<1:
+		return JsonResponse({"error":[True]})
+	df=df[~df['booked_on'].astype(str).str.startswith('N')]
+	# df['created_at'] = df['booked_on'].map(lambda x: x.strftime('%Y-%m-%d'))
+	df['created_week']=df['booked_on'].apply(lambda x : x.strftime("%U"))#%U#%W
+	df['created_week']=df['created_week'].astype(int)
+	df['created_year']=df['booked_on'].apply(lambda x : x.strftime("%Y"))
+	df['created_year']=df['created_year'].astype(int)
+	df['created_month']=df['booked_on'].apply(lambda x : x.strftime("%B"))
+	df['created_month_num']=df['booked_on'].apply(lambda x : x.strftime("%m"))
+	df['created_month_num']=df['created_month_num'].astype(int)
+	df['created_year']=df['created_year'].astype(str)
+	df['created_week']=df['created_week'].astype(str)
+	df['year_week_str']=df[['created_year', 'created_week']].agg(' Week '.join, axis=1)
+	df['created_year']=df['created_year'].astype(int)
+	df['created_week']=df['created_week'].astype(int)
+
+	df_map3=df_.groupby(['booked_on']).agg({"id": "count"}).reset_index()
+	df_map3=df_map3.sort_values(by=['booked_on'],ascending=False)
+	df_select2=df_.groupby(['booked_on','customer']).agg({"id": "count"}).reset_index()
+	df_select2=df_select2.sort_values(by=['id'],ascending=False)
+	df_map=df.groupby(['customer','year_week_str']).agg({"id": "count",
+														"created_year":"first",
+														"created_month_num":"first",
+														"created_week":"first"}).reset_index()
+	df_map=df_map.sort_values(by=['created_year','created_month_num','created_week'])
+	labels=df_map['year_week_str'].unique().tolist()[0:7]
+	all_data=[]
+	chart_colors=['#E74C3C','#884EA0','#3498DB','#1ABC9C','#1E8449','#F1C40F','#F39C12','#E67E22','#BA4A00','#2E4053','#82E0AA','#17202A']
+	for i in enumerate(df_map['customer'].unique().tolist()):
+		df_tmp=df_map[df_map['customer']==i[1]]
+		deet=[]
+		for l in labels:
+			p=df_tmp[df_tmp['year_week_str']==l]['id'].values
+			if len(p)>0:
+				deet.append(int(p[0]))
+			else:
+				deet.append(0)
+		if i[0]>10:
+			ind=11
+		else:
+			ind=i[0]
+		dct={
+		'label': i[1],
+		'data': deet,
+		'borderColor': chart_colors[ind],
+		'backgroundColor': chart_colors[ind],
+		'tension':0.5
+		}
+		all_data.append(dct)
+	final_data={
+	  "labels": labels,
+	  "datasets": all_data
+	}
+	df=df_.copy()
+	df_map2=df.groupby(['customer']).agg({"id": "count"}).reset_index()
+	# if len(df_map2['customer'].unique())>12:
+	# 	labels_colors=chart_colors+['#FFCE56']*(len(df_map2['customer'].unique())-12)
+	# else:
+	# 	labels_colors=chart_colors[0:len(df_map2['customer'].unique())]
+	# labels=df_map2['customer'].values.tolist()
+	# data=df_map2['id'].values.tolist()
+	# polar_data={
+	# 	'datasets':[{'data': data,
+	# 				'backgroundColor': labels_colors,
+	# 				'label': 'Loads per cusotmer'}],
+	# 	'labels':labels
+	# 	}
+		
+	donut_data=[]
+	for i in df_map2.itertuples():
+		donut_data.append({"carrier":i[1],"value":i[2]})
+	# line_data=[]
+	# for i in enumerate(df_select2['customer'].unique().tolist()):
+	# 	df_tmp=df_select2[df_select2['customer']==i[1]]
+	# 	loads=df_tmp['id'].values.tolist()
+	# 	df_tmp['dd_year']=df_tmp['booked_on'].apply(lambda x: x.strftime('%Y'))
+	# 	df_tmp['dd_month']=df_tmp['booked_on'].apply(lambda x: x.strftime('%m'))
+	# 	df_tmp['dd_day']=df_tmp['booked_on'].apply(lambda x: x.strftime('%d'))
+	# 	years=df_tmp['dd_year'].values.tolist()
+	# 	months=df_tmp['dd_month'].values.tolist()
+	# 	days=df_tmp['dd_day'].values.tolist()
+	# 	dct=[{"year":x[1],"month":x[2],"day":x[3],"value":x[0]} for x in zip(loads,years,months,days)]
+	# 	line_data.append([i[0],i[1],dct])
+	amt_chart1=[]
+	for i in df_map3.itertuples():
+		amt_chart1.append({"country":str(i[1])[:10],"visits":i[2]})
+	return JsonResponse({"error":[False],
+		"myChart1":final_data,
+		# "myChart2":polar_data,
+		"donut_data":donut_data,
+		# "line_data":line_data,
+		"amt_chart1":amt_chart1})
+
+@xframe_options_exempt
+def just_map_hexagons(response):
+	times=response.GET.get('times',None)
+	if times:
+		date=times
+		date1=date.split(" ")[0]
+		date2=date.split(" ")[2]
+		if date1==date2:
+			date2=datetime.now()
+			date1 = datetime.today() - timedelta(days=90)
+		else:
+			date1=datetime.strptime(date1, '%m/%d/%Y')
+			date2=datetime.strptime(date2, '%m/%d/%Y')
+	else:
+		date2=datetime.now()
+		date1 = datetime.today() - timedelta(days=90)
+	origin_st=response.GET.getlist('origin_st[]',None)
+	if origin_st:
+		origin_st=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in origin_st]
+	if not origin_st:
+		origin_st=states_list
+	origin_ct=response.GET.getlist('origin_ct[]',None)
+	if origin_ct:
+		origin_ct=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in origin_ct]
+	if not origin_ct:
+		origin_ct=cities_list
+		
+	# destination_st=response.GET.getlist('destination_st[]',None)
+	# if destination_st:
+	# 	destination_st=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in destination_st]
+	# if not destination_st:
+	# 	destination_st=states_list
+	# destination_ct=response.GET.getlist('destination_ct[]',None)
+	# if destination_ct:
+	# 	destination_ct=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in destination_ct]
+	# if not destination_ct:
+	# 	destination_ct=cities_list
+	origin_ct=[x.replace("'","").replace('"',"") for x in origin_ct]
+	# destination_ct=[x.replace("'","").replace('"',"") for x in destination_ct]
+	origin_st=str(origin_st)[1:-1]
+	origin_ct=str(origin_ct)[1:-1]
+	# destination_st=str(destination_st)[1:-1]
+	# destination_ct=str(destination_ct)[1:-1]
+	going=response.GET.get('going',None)
+	if going:
+		if going=='both':
+			intersect="(ST_Intersects(odl.origin_geography::geometry, hexes.geom::geometry) or\
+					ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry))"
+			dates_sql=f" (odl.delivery_date \
+				BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' OR \
+					odl.delivery_date \
+				BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' ) "
+			st_ct_sql=f"odl.origin_state IN ({origin_st}) AND \
+							odl.origin_city IN ({origin_ct}) "
+		elif going=='in':
+			intersect=" ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry) "
+			dates_sql=f" odl.delivery_date \
+			BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' "
+			st_ct_sql=f"odl.destination_state IN ({origin_st}) AND \
+							odl.destination_city IN ({origin_ct}) "
+		elif going=='out':
+			intersect=" ST_Intersects(odl.origin_geography::geometry, hexes.geom::geometry) "
+			dates_sql=f" odl.pickup_date \
+			BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' "
+			st_ct_sql=f"odl.origin_state IN ({origin_st}) AND \
+							odl.origin_city IN ({origin_ct}) "
+		else:
+			intersect="(ST_Intersects(odl.origin_geography::geometry, hexes.geom::geometry) or \
+				ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry))"
+			dates_sql=f" (odl.delivery_date \
+				BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' OR \
+					odl.delivery_date \
+			BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' ) "
+	else:
+		intersect="(ST_Intersects(odl.origin_geography::geometry, hexes.geom::geometry) or\
+				ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry))"
+		dates_sql=f" (odl.delivery_date \
+			BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' OR \
+				odl.delivery_date \
+			BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' ) "
+
+	df=pd.read_sql(f"SELECT odl.*,hexes.tile_id,ST_AsText(hexes.geom) as geom, \
+		ST_AsText(odl.lane_line_str) as lane_geom, \
+			carr.legal_name, carr.c411_trucks \
+		FROM \
+		usa_hex_3 AS hexes \
+		LEFT JOIN \
+		otr_data_loads AS odl \
+		ON {intersect} \
+		LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
+			where {dates_sql} \
+			AND ( {st_ct_sql} \
+			);",conn)
+
+
+	# times=response.GET.get('times',None)
+	# if times:
+	# 	date=times
+	# 	date1=date.split(" ")[0]
+	# 	date2=date.split(" ")[2]
+	# 	datesss='05/31/2020 xxxxx 05/31/2021'
+	# 	date1=datetime.strptime(date1, '%m/%d/%Y')
+	# 	date2=datetime.strptime(date2, '%m/%d/%Y')
+	# 	df=pd.read_sql(f"SELECT odl.*,hexes.tile_id,ST_AsText(hexes.geom) as geom, \
+	# 		ST_AsText(odl.lane_line_str) as lane_geom, \
+	# 			carr.legal_name, carr.c411_trucks \
+	# 		FROM \
+	# 		usa_hex_3 AS hexes \
+	# 		LEFT JOIN \
+	# 		otr_data_loads AS odl \
+	# 		ON {intersect} \
+	# 		LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
+	# 			where odl.delivery_date \
+	# 		BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' \
+	# 			AND ( \
+	# 				odl.origin_state IN ({origin_st}) AND \
+	# 				odl.origin_city IN ({origin_ct}) \
+	# 			);",conn)
+	# 	if len(df)<10:
+	# 		date_now=datetime.now()
+	# 		date_ago = datetime.today() - timedelta(days=45)
+	# 		df=pd.read_sql(f"SELECT odl.*,hexes.tile_id,ST_AsText(hexes.geom) as geom, \
+	# 		ST_AsText(odl.lane_line_str) as lane_geom, \
+	# 			carr.legal_name, carr.c411_trucks \
+	# 		FROM \
+	# 		usa_hex_3 AS hexes \
+	# 		LEFT JOIN \
+	# 		otr_data_loads AS odl \
+	# 		ON {intersect} \
+	# 		LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
+	# 			where odl.delivery_date \
+	# 			BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND '{date_now.year}-{date_now.month}-{date_now.day}' AND ( \
+	# 				odl.origin_state IN ({origin_st}) AND \
+	# 				odl.origin_city IN ({origin_ct}) \
+	# 			);",conn)
+	# else:
+	# 	date_now=datetime.now()
+	# 	date_ago = datetime.today() - timedelta(days=45)
+	# 	df=pd.read_sql(f"SELECT odl.*,hexes.tile_id,ST_AsText(hexes.geom) as geom, \
+	# 				ST_AsText(odl.lane_line_str) as lane_geom, \
+	# 					carr.legal_name, carr.c411_trucks \
+	# 	FROM \
+	# 	usa_hex_3 AS hexes \
+	# 	LEFT JOIN \
+	# 	otr_data_loads AS odl \
+	# 	ON {intersect} \
+	# 	LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
+	# 		where odl.delivery_date \
+	# 			BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND '{date_now.year}-{date_now.month}-{date_now.day}' AND ( \
+	# 				odl.origin_state IN ({origin_st}) AND \
+	# 				odl.origin_city IN ({origin_ct}) \
+	# 			);",conn)
+	# if times:
+	# 	date=times
+	# 	date1=date.split(" ")[0]
+	# 	date2=date.split(" ")[2]
+	# 	datesss='05/31/2020 xxxxx 05/31/2021'
+	# 	date1=datetime.strptime(date1, '%m/%d/%Y')
+	# 	date2=datetime.strptime(date2, '%m/%d/%Y')
+	# 	df1=pd.read_sql(f"SELECT odl.*,hexes.tile_id,ST_AsText(hexes.geom) as geom, \
+	# 		ST_AsText(odl.lane_line_str) as lane_geom, \
+	# 			carr.legal_name, carr.c411_trucks \
+	# 		FROM \
+	# 		usa_hex_3 AS hexes \
+	# 		LEFT JOIN \
+	# 		otr_data_loads AS odl \
+	# 		ON {intersect} \
+	# 		LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
+	# 			where odl.delivery_date \
+	# 		BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' \
+	# 			 AND \
+    #                  odl.pickup_date \
+    #     		NOT BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' AND ( \
+	# 				odl.origin_state IN ({origin_st}) AND \
+	# 				odl.origin_city IN ({origin_ct}) \
+	# 			);",conn)
+	# 	if len(df)<10:
+	# 		date_now=datetime.now()
+	# 		date_ago = datetime.today() - timedelta(days=45)
+	# 		df1=pd.read_sql(f"SELECT odl.*,hexes.tile_id,ST_AsText(hexes.geom) as geom, \
+	# 		ST_AsText(odl.lane_line_str) as lane_geom, \
+	# 			carr.legal_name, carr.c411_trucks \
+	# 		FROM \
+	# 		usa_hex_3 AS hexes \
+	# 		LEFT JOIN \
+	# 		otr_data_loads AS odl \
+	# 		ON {intersect} \
+	# 		LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
+	# 			where odl.delivery_date \
+	# 			BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND '{date_now.year}-{date_now.month}-{date_now.day}' \
+	# 			 AND \
+    #                  odl.pickup_date \
+    #     		NOT BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND '{date_now.year}-{date_now.month}-{date_now.day}' AND ( \
+	# 				odl.origin_state IN ({origin_st}) AND \
+	# 				odl.origin_city IN ({origin_ct}) \
+	# 			);",conn)
+	# else:
+	# 	date_now=datetime.now()
+	# 	date_ago = datetime.today() - timedelta(days=45)
+	# 	df1=pd.read_sql(f"SELECT odl.*,hexes.tile_id,ST_AsText(hexes.geom) as geom, \
+	# 				ST_AsText(odl.lane_line_str) as lane_geom, \
+	# 					carr.legal_name, carr.c411_trucks \
+	# 	FROM \
+	# 	usa_hex_3 AS hexes \
+	# 	LEFT JOIN \
+	# 	otr_data_loads AS odl \
+	# 	ON {intersect} \
+	# 	LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
+	# 		where odl.delivery_date \
+	# 			BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND '{date_now.year}-{date_now.month}-{date_now.day}' \
+	# 								 AND \
+    #                  odl.pickup_date \
+    #     		NOT BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND '{date_now.year}-{date_now.month}-{date_now.day}' AND ( \
+	# 				odl.origin_state IN ({origin_st}) AND \
+	# 				odl.origin_city IN ({origin_ct}) \
+	# 			);",conn)
+
+	df['legal_name'] = df['legal_name'].fillna('Independent')
+	df['c411_trucks'] = df['c411_trucks'].fillna(0)
+	df['geom'] = gp.GeoSeries.from_wkt(df['geom'])
+	gdf = gp.GeoDataFrame(df, geometry='geom')
+	df_map=df.groupby(['tile_id']).agg({"id": "count","geom":"first","destination_city":"first"}).reset_index()
+	# df1['legal_name'] = df1['legal_name'].fillna('Independent')
+	# df1['c411_trucks'] = df1['c411_trucks'].fillna(0)
+	# df_map1=df1.groupby(['tile_id']).agg({"id": "count","geom":"first","destination_city":"first"}).reset_index()
+
+	lst = range(1,80+1)
+	ranges=np.array_split(lst, 10)
+	chart_colors=['#f21111','#884EA0','#3498DB','#1ABC9C','#1E8449','#F1C40F','#F39C12','#E67E22','#BA4A00','#00b300','#82E0AA','#f02ef0']
+	chart_colors=["#1F78B4",
+			"#00278C",
+			"#B2DF8A",
+			"#33A02C",
+			"#FB9A99",
+			"#E31A1C",
+			"#FDBF6F",
+			"#FF7F00",
+			"#CAB2D6",
+			"#6A3D9A",
+			"#949D00",
+			"#666666"]
+	chart_colors=["#491D8B",
+				"#7B49BC",
+				"#8A3FFC",
+				"#BE95FF",
+				"#E8DAFF",
+				"#F6F2FF",
+				"#D9FBFB",
+				"#9EF0F0",
+				"#3DDBD9",
+				"#009D9A",
+				"#005D5D",
+				"#00464E"]
+	hexagons=[]
+	for i in df_map.itertuples():
+		tl=i[2]
+		# tmp=df_map1[df_map1['tile_id']==i[1]]
+		# if len(tmp)>0:
+		# 	tmp_c=tmp['id'].values[0]
+		# else:
+		# 	tmp_c=None
+		# if tmp_c:
+		# 	ddl=tl-tmp_c
+		# 	pdl=tmp_c
+		# else:
+		# 	ddl=0
+		# 	pdl=i[2]
+		clr_ind=None
+		for k in enumerate(ranges):
+			if i[2] in k[1]:
+				clr_ind=k[0]
+				break
+		if clr_ind!=0 and not clr_ind:
+			clr_ind=11
+		hexagons.append({
+			"type": "Feature",
+			"properties": {"id":i[1],"pop":i[2],"color":chart_colors[clr_ind],
+						"delivery":0,"pickup":0},
+			"geometry": i[3].__geo_interface__
+		})
+		
+	hexes_not_in_map=[x for x in zip(hexes['tile_id'],hexes['geom']) if x[0] not in df_map['tile_id'].values.tolist()]
+
+	for i in hexes_not_in_map:
+		hexagons.append({
+			"type": "Feature",
+			"properties": {"id":i[0],"pop":0,"color":"#696969"},
+			"geometry": i[1].__geo_interface__
+		})
+	deetz={
+	    "type": "FeatureCollection",
+	    "features": hexagons
+	}
+	return JsonResponse({"feats":deetz})
+
+@xframe_options_exempt
+def just_map_carrier_api(response):
+	origin_st=response.GET.getlist('origin_st[]',None)
+	if origin_st:
+		origin_st=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in origin_st]
+	if not origin_st:
+		origin_st=states_list
+	origin_ct=response.GET.getlist('origin_ct[]',None)
+	if origin_ct:
+		origin_ct=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in origin_ct]
+	if not origin_ct:
+		origin_ct=cities_list
+		
+	destination_st=response.GET.getlist('destination_st[]',None)
+	if destination_st:
+		destination_st=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in destination_st]
+	if not destination_st:
+		destination_st=states_list
+	destination_ct=response.GET.getlist('destination_ct[]',None)
+	if destination_ct:
+		destination_ct=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in destination_ct]
+	if not destination_ct:
+		destination_ct=cities_list
+
+	# dfx=pd.read_sql(f"select carr.legal_name from otr_data_loads AS odl \
+	# LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id\
+	# where  \
+	# 			odl.origin_state IN ({str(origin_st)[1:-1]}) AND \
+	# 				odl.origin_city IN ({str(origin_ct)[1:-1]}) AND\
+	# 					odl.destination_state IN ({str(destination_st)[1:-1]}) AND\
+	# 						odl.destination_city IN ({str(destination_ct)[1:-1]}) LIMIT 100;",conn)
+
+	# origin_ct=[x.replace("'","").replace('"',"") for x in origin_ct]
+	# destination_ct=[x.replace("'","").replace('"',"") for x in destination_ct]
+	# origin_st=str(origin_st)[1:-1]
+	# origin_ct=str(origin_ct)[1:-1]
+	# destination_st=str(destination_st)[1:-1]
+	# destination_ct=str(destination_ct)[1:-1]
+	df=df_gd.copy()
+	dfx=df[(df['origin_state_province'].isin(origin_st)) & \
+		(df['origin_city'].isin(origin_ct)) & \
+		(df['destination_state_province'].isin(destination_st)) & \
+		(df['destination_city'].isin(destination_ct))]
+	# dfx=pd.read_sql(f'select customer,shipper,receiver from gold_oldnew \
+	# where  \
+	# 			origin_state_province IN ({origin_st}) AND \
+	# 				origin_city IN ({origin_ct}) AND \
+	# 					destination_state_province IN ({destination_st}) AND \
+	# 						destination_city IN ({destination_ct}) LIMIT 100;',conn)
+	return JsonResponse({"customer":sorted(list(set(dfx['customer'].values.tolist()))),
+	"shipper":sorted(list(set(dfx['shipper'].values.tolist()))),
+	"receivers":sorted(list(set(dfx['receiver'].values.tolist())))})
+
+@xframe_options_exempt
+def just_map_v16(response):
+	deetz={
+	    "type": "FeatureCollection",
+	    "features": features
+	} 
+	df=df_gd.copy()
+
+	return render(response ,'blogs/just_map_v21.html',{"feats":deetz,
+		"origin_st":[us_state_abbrev_codes[x]+f" ({x})" for x in sorted(df['origin_state_province'].unique().tolist())],
+		"destination_st":[us_state_abbrev_codes[x]+f" ({x})" for x in sorted(df['destination_state_province'].unique().tolist())],
+		"origin_ct":sorted(df['origin_city'].unique().tolist()),
+		"destination_ct":sorted(df['destination_city'].unique().tolist())})
+
+@xframe_options_exempt
+def just_map_carrier_api2(response):
+	origin_st=response.GET.getlist('origin_st[]',None)
+	if origin_st:
+		origin_st=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in origin_st]
+	if not origin_st:
+		origin_st=states_list
+	origin_ct=response.GET.getlist('origin_ct[]',None)
+	if origin_ct:
+		origin_ct=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in origin_ct]
+	if not origin_ct:
+		origin_ct=cities_list
+		
+	destination_st=response.GET.getlist('destination_st[]',None)
+	if destination_st:
+		destination_st=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in destination_st]
+	if not destination_st:
+		destination_st=states_list
+	destination_ct=response.GET.getlist('destination_ct[]',None)
+	if destination_ct:
+		destination_ct=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in destination_ct]
+	if not destination_ct:
+		destination_ct=cities_list
+
+	origin_ct=[x.replace("'","").replace('"',"") for x in origin_ct]
+	destination_ct=[x.replace("'","").replace('"',"") for x in destination_ct]
+	origin_st=str(origin_st)[1:-1]
+	origin_ct=str(origin_ct)[1:-1]
+	destination_st=str(destination_st)[1:-1]
+	destination_ct=str(destination_ct)[1:-1]
+	dfx=pd.read_sql(f"select carr.legal_name  as legal_name from otr_data_loads AS odl \
+	LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id \
+	where  \
+				odl.origin_state IN ({origin_st}) AND \
+					odl.origin_city IN ({origin_ct}) AND\
+						odl.destination_state IN ({destination_st}) AND\
+							odl.destination_city IN ({destination_ct}) LIMIT 1000;",conn)
+
+	return JsonResponse({"customer":list(set(dfx['legal_name'].values.tolist()))})
+
+@xframe_options_exempt
+def just_map_tile_id(response):
+	# going=response.GET.get('going',None)
+	# if going:
+	# 	if going=='both':
+	# 		intersect="(ST_Intersects(odl.origin_geography::geometry, hexes.geom::geometry) or\
+	# 			ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry))"
+	# 	elif going=='in':
+	# 		intersect="ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry)"
+	# 	elif going=='out':
+	# 		intersect="ST_Intersects(odl.origin_geography::geometry, hexes.geom::geometry)"
+	# 	else:
+	# 		intersect="(ST_Intersects(odl.origin_geography::geometry, hexes.geom::geometry) or\
+	# 			ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry))"
+	# else:
+	# 	intersect="(ST_Intersects(odl.origin_geography::geometry, hexes.geom::geometry) or\
+	# 			ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry))"
+	tile_id=response.GET.get('tile_id',None)
+	date2=datetime.now()
+	date1 = datetime.today() - timedelta(days=120)
+	going=response.GET.get('going',None)
+	if going:
+		if going=='both':
+			intersect="(ST_Intersects(odl.origin_geography::geometry, hexes.geom::geometry) or\
+					ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry))"
+			dates_sql=f" (odl.delivery_date \
+				BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' OR \
+					odl.delivery_date \
+				BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' ) "
+		elif going=='in':
+			intersect=" ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry) "
+			dates_sql=f" odl.delivery_date \
+			BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' "
+			orderby_sql=" ORDER BY delivery_date desc LIMIT 4000 "
+		elif going=='out':
+			intersect=" ST_Intersects(odl.origin_geography::geometry, hexes.geom::geometry) "
+			dates_sql=f" odl.pickup_date \
+			BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' "
+			orderby_sql=" ORDER BY pickup_date desc LIMIT 4000 "
+		else:
+			intersect="(ST_Intersects(odl.origin_geography::geometry, hexes.geom::geometry) or \
+				ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry))"
+			dates_sql=f" (odl.delivery_date \
+				BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' OR \
+					odl.delivery_date \
+			BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' ) "
+	else:
+		intersect="(ST_Intersects(odl.origin_geography::geometry, hexes.geom::geometry) or\
+				ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry))"
+		dates_sql=f" (odl.delivery_date \
+			BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' OR \
+				odl.delivery_date \
+			BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}' ) "
+	# intersect="(ST_Intersects(odl.origin_geography::geometry, hexes.geom::geometry) or\
+	# 			ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry))"
+	# df=pd.read_sql(f"SELECT odl.id as id,odl.description as description,odl.equipment_type_id as equipment_type_id, \
+	# 	hexes.tile_id,ST_AsText(hexes.geom) as geom, odl.origin_data, odl.destination_data,\
+	# 		ST_AsText(odl.lane_line_str) as lane_geom, \
+	# 			carr.legal_name, carr.c411_trucks, COALESCE(carr.dat_fleet_refreshed_at, odl.delivery_date) AS delivery_date \
+	# 		FROM \
+	# 		usa_hex_3 AS hexes \
+	# 		LEFT JOIN \
+	# 		otr_data_loads AS odl \
+	# 		ON {intersect} \
+	# 		FULL JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
+	# 			where hexes.tile_id='{tile_id}' AND \
+	# 				{dates_sql};",conn,
+	# 			parse_dates={'booked_on': {'format': '%Y-%m-%d'},
+	# 		'picked_up_by': {'format': '%Y-%m-%d'},
+	# 		'delivery_date': {'format': '%Y-%m-%d'}})
+
+	df=pd.read_sql(f"SELECT odl.id as id,odl.description as description,eg.name AS equipment_type_id, odl.equipment_type_id as equipment_type, \
+		 odl.origin_data, odl.destination_data,\
+			ST_AsText(odl.lane_line_str) as lane_geom, \
+				carr.legal_name, carr.c411_trucks, COALESCE(carr.dat_fleet_refreshed_at, odl.delivery_date) AS delivery_date \
+			FROM \
+			usa_hex_3 AS hexes \
+			LEFT JOIN \
+			otr_data_loads AS odl \
+			ON {intersect} \
+               LEFT JOIN otr_loads_eq_type et ON odl.equipment_type_id = et.id \
+                   LEFT JOIN otr_loads_eq_group eg ON et.equipment_group_id = eg.id \
+			FULL JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
+				where hexes.tile_id='{tile_id}' AND \
+					{dates_sql} {orderby_sql} ;",conn,
+				parse_dates={'booked_on': {'format': '%Y-%m-%d'},
+			'picked_up_by': {'format': '%Y-%m-%d'},
+			'delivery_date': {'format': '%Y-%m-%d'}})
+	desc=df['description'].values.tolist()
+	desc=[x.replace(" ","-").upper() for x in desc if x]
+	desc =sorted(list(desc))
+	desc=str(desc)[1:-1].replace(","," ")
+	
+	df['equipment_type_id']=df['equipment_type_id'].fillna('UNKNOWN')
+	df['legal_name']=df['legal_name'].fillna('Independent')
+	df=df[~df['delivery_date'].astype(str).str.startswith('N')]
+	df['created_week']=df['delivery_date'].apply(lambda x : x.strftime("%U"))#%U#%W
+	df['created_week']=df['created_week'].astype(int)
+	df['created_year']=df['delivery_date'].apply(lambda x : x.strftime("%Y"))
+	df['created_year']=df['created_year'].astype(int)
+	df['created_month']=df['delivery_date'].apply(lambda x : x.strftime("%B"))
+	df['created_month_num']=df['delivery_date'].apply(lambda x : x.strftime("%m"))
+	df['created_month_num']=df['created_month_num'].astype(int)
+	df['created_year']=df['created_year'].astype(str)
+	df['created_week']=df['created_week'].astype(str)
+	df['year_week_str']=df[['created_year', 'created_week']].agg(' Week '.join, axis=1)
+	df['created_year']=df['created_year'].astype(int)
+	df['created_week']=df['created_week'].astype(int)
+
+	df_select2=df.groupby(['delivery_date','legal_name']).agg({"id": "count"}).reset_index()
+	df_select2=df_select2.sort_values(by=['id'],ascending=False)
+	df_select=df.groupby(['legal_name']).agg({"id": "count"}).reset_index()
+	df_select=df_select.sort_values(by=['id'],ascending=False)
+	df=df[df['legal_name'].isin(df_select['legal_name'][0:11])]
+	df_map=df.groupby(['legal_name','year_week_str']).agg({"id": "count",
+														"created_year":"first",
+														"created_month_num":"first",
+														"created_week":"first"}).reset_index()
+	df_map=df_map.sort_values(by=['created_year','created_month_num','created_week'])
+	labels=df_map['year_week_str'].unique().tolist()[0:5]
+	# df_map=df_map[df_map['year_week_str'].isin(labels)]
+	all_data=[]
+	chart_colors=['#E74C3C','#884EA0','#3498DB','#1ABC9C','#1E8449','#F1C40F','#F39C12','#E67E22','#BA4A00','#2E4053','#82E0AA','#17202A']
+
+	for i in enumerate(df_map['legal_name'].unique().tolist()):
+		df_tmp=df_map[df_map['legal_name']==i[1]]
+		deet=[]
+		for l in labels:
+			p=df_tmp[df_tmp['year_week_str']==l]['id'].values
+			if len(p)>0:
+				deet.append(int(p[0]))
+			else:
+				deet.append(0)
+		if i[0]>10:
+			ind=11
+		else:
+			ind=i[0]
+		dct={
+		'label': i[1],
+		'data': deet,
+		'borderColor': chart_colors[ind],
+		'backgroundColor': chart_colors[ind],
+		'tension':0.5
+		}
+		all_data.append(dct)
+	final_data={
+		"labels": labels,
+		"datasets": all_data
+	}
+	am_cht1=[]
+	lblamt1=df_map['legal_name'].unique().tolist()[0:5]
+	for i in enumerate(labels):
+		df_tmp=df_map[df_map['year_week_str']==i[1]]
+		dct={}
+		dct["year"]=i[1]
+		for j in enumerate(lblamt1):
+			p=df_tmp[df_tmp['legal_name']==j[1]]['id'].values
+			if len(p)>0:
+				dct[j[1]]=int(p[0])
+			else:
+				dct[j[1]]=0
+		am_cht1.append(dct)
+	# desc=df['description'].values.tolist()
+	
+	df_map1=df.groupby(['equipment_type_id']).agg({"id": "count"}).reset_index()
+	amt_chart2=[]
+	for i in df_map1.itertuples():
+		amt_chart2.append({"equipment_type_id":i[1],
+		"value":i[2]})
+
+	line_data=[]
+	for i in enumerate(df_select2['legal_name'].unique().tolist()):
+		df_tmp=df_select2[df_select2['legal_name']==i[1]]
+		df_tmp=df_tmp.sort_values(by=['delivery_date'],ascending=False)
+		loads=df_tmp['id'].values.tolist()
+		df_tmp['dd_year']=df_tmp['delivery_date'].apply(lambda x: x.strftime('%Y'))
+		df_tmp['dd_month']=df_tmp['delivery_date'].apply(lambda x: x.strftime('%m'))
+		df_tmp['dd_day']=df_tmp['delivery_date'].apply(lambda x: x.strftime('%d'))
+		years=df_tmp['dd_year'].values.tolist()
+		months=df_tmp['dd_month'].values.tolist()
+		days=df_tmp['dd_day'].values.tolist()
+		dct=[{"year":x[1],"month":x[2],"day":x[3],"value":x[0]} for x in zip(loads,years,months,days)]
+		line_data.append([i[0],i[1],dct])
+	
+	df=df[df['origin_data'].notnull()]
+	df=df[df['destination_data'].notnull()]
+	df_map=df.groupby(['origin_data','destination_data']).agg({"id": "count"}).reset_index()
+	df_map=df_map.sort_values(by=['id'],ascending=False)
+	chord_data=[]
+	for i in df_map.itertuples():
+		chord_data.append({"from":i[1],
+							"to":i[2],
+							"value":i[3]})
+	tile_df=pd.read_sql(f"select ST_AsText(geom) as geom from usa_hex_3 where tile_id='{tile_id}'",conn)
+	tile_df['geom'] = gp.GeoSeries.from_wkt(tile_df['geom'])
+	if len(tile_df)>0:
+		highlight_poly = [{
+		"type": "Feature",
+		"geometry": tile_df['geom'].values[0].__geo_interface__
+		}]
+	else:
+		highlight_poly=[{
+		"type": "Feature",
+		"geometry": {"d":"d"}
+		}]
+	return JsonResponse({"error":[False],
+		"myChart1":final_data,
+		"words":desc,
+		"amt_chart1":am_cht1,
+		"amt_chart1_labels":lblamt1,
+		"amt_chart2":amt_chart2,
+		"line_data":line_data,
+		"chord_data":chord_data,
+		"highlight_poly":highlight_poly})
+
+@xframe_options_exempt
+def just_map_deadhead(response):
+	lon=response.GET.get('lon',None)
+	lat=response.GET.get('lat',None)
+	dist=response.GET.get('dist',None)
+	dist=int(dist)
+	dist=804.5 * dist#80450
+	dist= int(dist)
+	dist=str(dist)
+	date_now=datetime.now()
+	date_ago = datetime.today() - timedelta(days=60)
+	"""
+	df=pd.read_sql("SELECT asset_assetId,\
+		asset_equipment_destination_place_namedcoordinates_latitude,\
+		asset_equipment_destination_place_namedcoordinates_longitude,\
+		asset_equipment_origin_namedcoordinates_latitude,\
+		asset_equipment_origin_namedcoordinates_longitude\
+	 FROM import.trucks_raw where cast(created_week as int)>12 and \
+		cast(created_week as int)<17 and origin_zone!='x'",con=conn) 
+	"""
+	df=pd.read_sql(f"SELECT odl.*, ST_AsText(odl.origin_geography) as origin_geom, \
+			ST_AsText(odl.lane_line_str) as lane_geom, \
+				carr.legal_name, carr.c411_trucks,otr_cust.name as customer_name \
+			FROM \
+			otr_data_loads AS odl \
+			LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
+				INNER JOIN otr_data_customers AS otr_cust ON  odl.customer_id=otr_cust.id   \
+				where ST_DWithin(odl.origin_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, {dist}) \
+					AND odl.delivery_date \
+					BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND \
+						'{date_now.year}-{date_now.month}-{date_now.day}';",conn,
+				parse_dates={'booked_on': {'format': '%Y-%m-%d'},
+			'picked_up_by': {'format': '%Y-%m-%d'},
+			'delivery_date': {'format': '%Y-%m-%d'}})
+	df['legal_name'] = df['legal_name'].fillna('Independent')
+
+	df=df[~df['delivery_date'].astype(str).str.startswith('N')]
+	df['created_week']=df['delivery_date'].apply(lambda x : x.strftime("%U"))#%U#%W
+	df['created_week']=df['created_week'].astype(int)
+	df['created_year']=df['delivery_date'].apply(lambda x : x.strftime("%Y"))
+	df['created_year']=df['created_year'].astype(int)
+	df['created_month']=df['delivery_date'].apply(lambda x : x.strftime("%B"))
+	df['created_month_num']=df['delivery_date'].apply(lambda x : x.strftime("%m"))
+	df['created_month_num']=df['created_month_num'].astype(int)
+	df['created_year']=df['created_year'].astype(str)
+	df['created_week']=df['created_week'].astype(str)
+	df['year_week_str']=df[['created_year', 'created_week']].agg(' Week '.join, axis=1)
+	df['created_year']=df['created_year'].astype(int)
+	df['created_week']=df['created_week'].astype(int)
+
+	df['origin_geom'] = gp.GeoSeries.from_wkt(df['origin_geom'])
+	df_select=df.groupby(['origin_geography','year_week_str']).agg({"id": "count",'origin_geom':'first'}).reset_index()
+	df_select=df_select.groupby(['origin_geography']).agg({"id": "mean",'origin_geom':'first'}).reset_index()
+	df_select=df_select.sort_values(by=['id'],ascending=False)
+	df_select=df_select[0:20]
+	origin_geography=df_select['origin_geography']
+
+	lst = range(1,10)
+	ranges=np.array_split(lst, 3)
+	chart_colors=['#f21111','#884EA0','#3498DB','#1ABC9C','#1E8449','#F1C40F','#F39C12','#E67E22','#BA4A00','#00b300','#82E0AA','#f02ef0']
+ 
+	lines=[]
+	for i in df_select['origin_geography'].unique().tolist():
+		df_tmp=df_select[df_select['origin_geography']==i]
+		df_tmp1=df[df['origin_geography']==i]['legal_name'].values.tolist()
+		if len(df_tmp1)>0:
+			df_tmp1=[x for x in df_tmp1 if x]
+			df_tmp1=sorted(list(set(df_tmp1)))
+		if len(df_tmp)>0:
+			avg=df_tmp['id'].mean()
+			lat2=df_tmp['origin_geom'].values[0].y
+			lon2=df_tmp['origin_geom'].values[0].x
+		else:
+			lat2=0.0
+			lon2=0.0
+			avg=1
+		clr_ind=None
+		for k in enumerate(ranges):
+			if int(avg) in k[1]:
+				clr_ind=k[0]
+				break
+		if clr_ind!=0 and not clr_ind:
+			clr_ind=11
+		point1 = Point(float(lon),float(lat))#lon.lat
+		point2 = Point(float(lon2),float(lat2))
+		angle1,angle2,distance = geod.inv(point1.x, point1.y, point2.x, point2.y)
+		lines.append([[lat,lon],[lat2,lon2],int(avg),chart_colors[clr_ind],int(distance/1000),df_tmp1])
+	
+	data={"lines":lines}
+	return JsonResponse(data)
+
+@xframe_options_exempt
+def test(response):
+	data={"lines":"lines"}
+	return JsonResponse(data)
+
+@xframe_options_exempt
+def just_map_loads_deadhead(response):
+	lon=response.GET.get('lon',None)
+	lat=response.GET.get('lat',None)
+	dist=response.GET.get('dist',None)
+	date_now=datetime.now()
+	date_ago = datetime.today() - timedelta(days=60)
+
+	# df=pd.read_sql(f"SELECT odl.*, ST_AsText(odl.origin_geography) as origin_geom, \
+	# 		ST_AsText(odl.lane_line_str) as lane_geom, \
+	# 			carr.legal_name, carr.c411_trucks,otr_cust.name as customer_name \
+	# 		FROM \
+	# 		otr_data_loads AS odl \
+	# 		LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
+	# 			INNER JOIN otr_data_customers AS otr_cust ON  odl.customer_id=otr_cust.id   \
+	# 			where ST_DWithin(odl.origin_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 80450) \
+	# 				AND odl.delivery_date \
+	# 				BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND \
+	# 					'{date_now.year}-{date_now.month}-{date_now.day}';",conn,
+	# 			parse_dates={'booked_on': {'format': '%Y-%m-%d'},
+	# 		'picked_up_by': {'format': '%Y-%m-%d'},
+	# 		'delivery_date': {'format': '%Y-%m-%d'}})
+	# df['legal_name'] = df['legal_name'].fillna('Independent')
+
+	# df=df[~df['delivery_date'].astype(str).str.startswith('N')]
+	# df['created_week']=df['delivery_date'].apply(lambda x : x.strftime("%U"))#%U#%W
+	# df['created_week']=df['created_week'].astype(int)
+	# df['created_year']=df['delivery_date'].apply(lambda x : x.strftime("%Y"))
+	# df['created_year']=df['created_year'].astype(int)
+	# df['created_month']=df['delivery_date'].apply(lambda x : x.strftime("%B"))
+	# df['created_month_num']=df['delivery_date'].apply(lambda x : x.strftime("%m"))
+	# df['created_month_num']=df['created_month_num'].astype(int)
+	# df['created_year']=df['created_year'].astype(str)
+	# df['created_week']=df['created_week'].astype(str)
+	# df['year_week_str']=df[['created_year', 'created_week']].agg(' Week '.join, axis=1)
+	# df['created_year']=df['created_year'].astype(int)
+	# df['created_week']=df['created_week'].astype(int)
+
+	# df['origin_geom'] = gp.GeoSeries.from_wkt(df['origin_geom'])
+	# df['lane_geom'] = gp.GeoSeries.from_wkt(df['lane_geom'])
+	# df_select=df.groupby(['origin_geography','year_week_str']).agg({"id": "count",
+	# 'origin_geom':'first','lane_geom':'first'}).reset_index()
+	# df_select=df_select.groupby(['origin_geography']).agg({"id": "mean",
+	# 'origin_geom':'first','lane_geom':'first'}).reset_index()
+	# df_select=df_select.sort_values(by=['id'],ascending=False)
+	# df_select=df_select[0:20]
+	# df_select=df_select.reset_index()
+
+	# lst = range(1,10)
+	# ranges=np.array_split(lst, 3)
+	# chart_colors=['#f21111','#884EA0','#3498DB','#1ABC9C','#1E8449','#F1C40F','#F39C12','#E67E22','#BA4A00','#00b300','#82E0AA','#f02ef0']
+ 
+	# lines=[]
+	# for i in df_select['origin_geography'].unique().tolist():
+	# 	df_tmp=df_select[df_select['origin_geography']==i]
+	# 	df_tmp1=df[df['origin_geography']==i]['legal_name'].values.tolist()
+	# 	if len(df_tmp1)>0:
+	# 		df_tmp1=[x for x in df_tmp1 if x]
+	# 		# df_tmp1=sorted(list(set(df_tmp1)))
+	# 		desc=df_tmp1
+	# 		desc=[x.replace(" ","-") for x in desc if x]
+	# 		desc =sorted(list(desc))
+	# 		desc=str(desc)[1:-1].replace(","," ")
+	# 	if len(df_tmp)>0:
+	# 		avg=df_tmp['id'].mean()
+	# 		lat2=df_tmp['origin_geom'].values[0].y
+	# 		lon2=df_tmp['origin_geom'].values[0].x
+	# 		lat11=df_tmp['lane_geom'].values[0].coords[0][1]
+	# 		lon11=df_tmp['lane_geom'].values[0].coords[0][0]
+	# 		lat22=df_tmp['lane_geom'].values[0].coords[1][1]
+	# 		lon22=df_tmp['lane_geom'].values[0].coords[1][0]
+	# 	else:
+	# 		lat2=0.0
+	# 		lon2=0.0
+	# 		lat11=0.0
+	# 		lon11=0.0
+	# 		lat22=0.0
+	# 		lon22=0.0
+	# 		avg=1
+	# 	# clr_ind=None
+	# 	# for k in enumerate(ranges):
+	# 	# 	if int(avg) in k[1]:
+	# 	# 		clr_ind=k[0]
+	# 	# 		break
+	# 	# if clr_ind!=0 and not clr_ind:
+	# 	# 	clr_ind=11
+	# 	clr_ind = 0
+	# 	point1 = Point(float(lon),float(lat))#lon.lat
+	# 	point2 = Point(float(lon2),float(lat2))
+	# 	angle1,angle2,distance = geod.inv(point1.x, point1.y, point2.x, point2.y)
+	# 	lines.append([[lat,lon],[lat2,lon2],int(avg),chart_colors[clr_ind],int(distance/1000),desc])
+	# 	# point1 = Point(float(lon11),float(lat11))#lon.lat
+	# 	# point2 = Point(float(lon22),float(lat22))
+	# 	# angle1,angle2,distance = geod.inv(point1.x, point1.y, point2.x, point2.y)
+	# 	# lines.append([[lat11,lon11],[lat22,lon22],int(avg),chart_colors[1],int(distance/1000),desc])
+
+	lines=[]
+	df=pd.read_sql(f"SELECT odl.*, ST_AsText(odl.destination_geography) as destination_geom, \
+			ST_AsText(odl.lane_line_str) as lane_geom, \
+				carr.legal_name, carr.c411_trucks,otr_cust.name as customer_name \
+			FROM \
+			otr_data_loads AS odl \
+			LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
+				INNER JOIN otr_data_customers AS otr_cust ON  odl.customer_id=otr_cust.id   \
+				where ST_DWithin(odl.destination_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 80450) \
+					AND odl.delivery_date \
+					BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND \
+						'{date_now.year}-{date_now.month}-{date_now.day}';",conn,
+				parse_dates={'booked_on': {'format': '%Y-%m-%d'},
+			'picked_up_by': {'format': '%Y-%m-%d'},
+			'delivery_date': {'format': '%Y-%m-%d'}})
+	df['legal_name'] = df['legal_name'].fillna('Independent')
+
+	df=df[~df['delivery_date'].astype(str).str.startswith('N')]
+	df['created_week']=df['delivery_date'].apply(lambda x : x.strftime("%U"))#%U#%W
+	df['created_week']=df['created_week'].astype(int)
+	df['created_year']=df['delivery_date'].apply(lambda x : x.strftime("%Y"))
+	df['created_year']=df['created_year'].astype(int)
+	df['created_month']=df['delivery_date'].apply(lambda x : x.strftime("%B"))
+	df['created_month_num']=df['delivery_date'].apply(lambda x : x.strftime("%m"))
+	df['created_month_num']=df['created_month_num'].astype(int)
+	df['created_year']=df['created_year'].astype(str)
+	df['created_week']=df['created_week'].astype(str)
+	df['year_week_str']=df[['created_year', 'created_week']].agg(' Week '.join, axis=1)
+	df['created_year']=df['created_year'].astype(int)
+	df['created_week']=df['created_week'].astype(int)
+
+	df['destination_geom'] = gp.GeoSeries.from_wkt(df['destination_geom'])
+	df['lane_geom'] = gp.GeoSeries.from_wkt(df['lane_geom'])
+	df_select=df.groupby(['destination_geography','year_week_str']).agg({"id": "count",
+	'destination_geom':'first','lane_geom':'first'}).reset_index()
+	df_select=df_select.groupby(['destination_geography']).agg({"id": "mean",
+	'destination_geom':'first','lane_geom':'first'}).reset_index()
+	df_select=df_select.sort_values(by=['id'],ascending=False)
+	df_select=df_select[0:20]
+	df_select=df_select.reset_index()
+
+	lst = range(1,10)
+	ranges=np.array_split(lst, 3)
+	chart_colors=['#f21111','#884EA0','#3498DB','#1ABC9C','#1E8449','#F1C40F','#F39C12','#E67E22','#BA4A00','#00b300','#82E0AA','#f02ef0']
+ 
+	for i in df_select['destination_geography'].unique().tolist():
+		df_tmp=df_select[df_select['destination_geography']==i]
+		df_tmp1=df[df['destination_geography']==i]['legal_name'].values.tolist()
+		if len(df_tmp1)>0:
+			df_tmp1=[x for x in df_tmp1 if x]
+			# df_tmp1=sorted(list(set(df_tmp1)))
+			desc=df_tmp1
+			desc=[x.replace(" ","-") for x in desc if x]
+			desc =sorted(list(desc))
+			desc=str(desc)[1:-1].replace(","," ")
+		if len(df_tmp)>0:
+			avg=df_tmp['id'].mean()
+			lat2=df_tmp['destination_geom'].values[0].y
+			lon2=df_tmp['destination_geom'].values[0].x
+			lat11=df_tmp['lane_geom'].values[0].coords[0][1]
+			lon11=df_tmp['lane_geom'].values[0].coords[0][0]
+			lat22=df_tmp['lane_geom'].values[0].coords[1][1]
+			lon22=df_tmp['lane_geom'].values[0].coords[1][0]
+		else:
+			lat2=0.0
+			lon2=0.0
+			lat11=0.0
+			lon11=0.0
+			lat22=0.0
+			lon22=0.0
+			avg=1
+		# clr_ind=None
+		# for k in enumerate(ranges):
+		# 	if int(avg) in k[1]:
+		# 		clr_ind=k[0]
+		# 		break
+		# if clr_ind!=0 and not clr_ind:
+		# 	clr_ind=11
+		clr_ind = 0
+		point1 = Point(float(lon),float(lat))#lon.lat
+		point2 = Point(float(lon2),float(lat2))
+		angle1,angle2,distance = geod.inv(point1.x, point1.y, point2.x, point2.y)
+		lines.append([[lat,lon],[lat2,lon2],int(avg),chart_colors[clr_ind],int(distance/1000),desc])
+		# point1 = Point(float(lon11),float(lat11))#lon.lat
+		# point2 = Point(float(lon22),float(lat22))
+		# angle1,angle2,distance = geod.inv(point1.x, point1.y, point2.x, point2.y)
+		# lines.append([[lat11,lon11],[lat22,lon22],int(avg),chart_colors[2],int(distance/1000),desc])
+	data={"lines":lines}
+	return JsonResponse(data)
+
+@xframe_options_exempt
+def just_heat_chart_v2_api(response):
+	# df = df_gd.copy()
+	customer=response.GET.getlist('customer[]',None)
+	if customer:
+		customer=[x.replace("'","").replace('"',"") for x in customer]
+		cust=str(customer)[1:-1]
+		cusotmer_sql=f"odl.customer IN ({cust}) AND  "
+	else:
+		cusotmer_sql=""
+	selector=response.GET.get('week_month',None)
+	if not selector:
+		selector='year_month'
+	selector0=response.GET.get('selector0',None)
+	if not selector0:
+		selector0='customer'
+	origin_st=response.GET.getlist('origin_st[]',None)
+	if origin_st:
+		origin_st=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in origin_st]
+		origin_st=str(origin_st)[1:-1]
+		origin_st_sql=f" AND odl.origin_state_province IN ({origin_st}) "
+	if not origin_st:
+		origin_st_sql=""
+	
+
+	destination_st=response.GET.getlist('destination_st[]',None)
+	if destination_st:
+		destination_st=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in destination_st]
+		destination_st=str(destination_st)[1:-1]
+		destination_st_sql=f" AND odl.destination_state_province IN ({destination_st}) "
+	if not destination_st:
+		destination_st_sql=""
+
+	origin_ct=response.GET.getlist('origin_ct[]',None)
+	if origin_ct:
+		origin_ct=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in origin_ct]
+		origin_ct=[x.replace("'","").replace('"',"") for x in origin_ct]
+		origin_ct=str(origin_ct)[1:-1]
+		origin_ct_sql=f" AND odl.origin_city IN ({origin_ct}) "
+	if not origin_ct:
+		origin_ct_sql=""
+	
+	destination_ct=response.GET.getlist('destination_ct[]',None)
+	if destination_ct:
+		destination_ct=[x.split(" ")[-1].replace("(","").replace(")","").strip() for x in destination_ct]
+		destination_ct=[x.replace("'","").replace('"',"") for x in destination_ct]
+		destination_ct=str(destination_ct)[1:-1]
+		destination_ct_sql=f" AND odl.destination_city IN ({destination_ct}) "
+	if not destination_ct:
+		destination_ct_sql=""
+
+	# # selector='year_month'
+	# # selector0='customer'
+	# origin_ct=[x.replace("'","").replace('"',"") for x in origin_ct]
+	# destination_ct=[x.replace("'","").replace('"',"") for x in destination_ct]
+	# origin_st=str(origin_st)[1:-1]
+	# origin_ct=str(origin_ct)[1:-1]
+	# destination_st=str(destination_st)[1:-1]
+	# destination_ct=str(destination_ct)[1:-1]
+
+	date_now=datetime.now()
+	date_ago = datetime.today() - timedelta(days=190)
+	df1=pd.read_sql(f"select odl.id,odl.booked_on,odl.customer_rate, \
+		odl.customer,odl.shipper,odl.receiver,odl.origin_data,odl.destination_data  \
+		 from gold_oldnew AS odl \
+	where {cusotmer_sql} \
+		 (booked_on \
+					BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND '{date_now.year}-{date_now.month}-{date_now.day}') \
+				{origin_st_sql} \
+					{origin_ct_sql} \
+						{destination_st_sql} \
+							{destination_ct_sql} ORDER BY booked_on DESC LIMIT 1000;",conn,parse_dates=['booked_on'])
+		
+	if len(df1)<1:
+		return JsonResponse({"error":[True]})
+	df1=df1[~df1['booked_on'].astype(str).str.startswith('N')]
+	# df['created_at'] = df['booked_on'].map(lambda x: x.strftime('%Y-%m-%d'))
+	df1['created_week']=df1['booked_on'].apply(lambda x : x.strftime("%U"))#%U#%W
+	df1['created_week']=df1['created_week'].astype(int)
+	df1['created_year']=df1['booked_on'].apply(lambda x : x.strftime("%Y"))
+	df1['created_year']=df1['created_year'].astype(int)
+	df1['created_month']=df1['booked_on'].apply(lambda x : x.strftime("%B"))
+	df1['created_month_num']=df1['booked_on'].apply(lambda x : x.strftime("%m"))
+	df1['created_month_num']=df1['created_month_num'].astype(int)
+	df1['created_year']=df1['created_year'].astype(str)
+	df1['created_week']=df1['created_week'].astype(str)
+	df1['year_week_str']=df1[['created_year', 'created_week']].agg(' Week '.join, axis=1)
+	df1['created_year']=df1['created_year'].astype(int)
+	df1['created_week']=df1['created_week'].astype(int)
+	df1['created_year']=df1['created_year'].astype(str)
+	df1['created_week']=df1['created_week'].astype(str)
+	df1['year_month']=df1[['created_year', 'created_month']].agg(' '.join, axis=1)
+	df1['travel_data']=df1[['origin_data', 'destination_data']].agg('->'.join, axis=1)
+	df1['year_week_str']=df1[['created_year', 'created_week']].agg(' Week '.join, axis=1)
+	df1['created_year']=df1['created_year'].astype(int)
+	df1['created_week']=df1['created_week'].astype(int)
+	df1['year_week']=df1['created_year'].astype(str)+df1['created_week'].astype(str)
+	# selector='year_month'
+	# selector='year_week_str'
+	# selector0='customer'
+	carr=df1.groupby([selector0,selector]).agg({'id':'count',
+												'year_week':'max',
+												'created_year':'max',
+												'created_week':'max',
+												'created_month_num':'max',
+												'customer_rate':['min', 'max', 'mean']}).reset_index()
+	carr_columns=[]
+	for x in carr.columns.ravel():
+		if x[0]=="customer_rate":
+			carr_columns.append("_".join(x))
+		else:
+			carr_columns.append(x[0])
+
+	carr.columns = carr_columns
+	if selector=='year_week_str':
+		carr.sort_values(by=['created_year','created_week'],ascending=True,inplace=True)
+	else:
+		carr.sort_values(by=['created_year','created_month_num'],ascending=True,inplace=True)
+
+	lanes=carr.groupby([selector0]).count().sort_values(by=['id'],
+					ascending=False)['id'][:20].index.tolist()
+	carr=carr[carr[selector0].isin(lanes)]
+	year_weeks=carr[selector].unique().tolist()
+	if selector=='year_week_str':
+		year_weeks=year_weeks[-14:]
+
+	heats=[]
+	for i in lanes:
+		tmp=carr[carr[selector0]==i]
+		for j in year_weeks:
+			tmp1=tmp[tmp[selector]==j]
+			if len(tmp1)>0:
+				heats.append({"selector0":i,"selector":j,
+						"value":int(tmp1['id'].values[0]),
+						"customer_rate":int(tmp1['customer_rate_mean'].values[0])})
+			else:
+				heats.append({"selector0":i,"selector":j,
+						"value":0,
+						"customer_rate":0})
+
+	return JsonResponse({"error":[False],
+		"heat_series":heats})
+
+@xframe_options_exempt
+def just_map_deadhead_lines(response):
+	lon=response.GET.get('lon',None)
+	lat=response.GET.get('lat',None)
+	outgoing_sql=f" (ST_DWithin(odl.origin_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 6045) \
+		OR ST_DWithin(odl.destination_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 100)) "
+	df1=pd.read_sql(f"SELECT MAX(odl.delivery_date) AS delivery_date, \
+		COALESCE(ST_AsText(odl.lane_line_str)) as lane_geom  \
+		FROM \
+		otr_data_loads AS odl \
+			where {outgoing_sql} AND odl.lane_line_str IS NOT NULL \
+					group by odl.lane_line_str \
+					order by count(odl.id) desc LIMIT 50 ;",conn)
+	df1['lane_geom'] = gp.GeoSeries.from_wkt(df1['lane_geom'])
+	chart_colors=["#1F78B4",
+			"#00278C",
+			"#B2DF8A",
+			"#33A02C",
+			"#FB9A99",
+			"#E31A1C",
+			"#FDBF6F",
+			"#FF7F00",
+			"#CAB2D6",
+			"#6A3D9A",
+			"#949D00",
+			"#666666"]
+	lines=[]
+	for i in df1.itertuples():
+		c=i[2].coords
+		point1 = Point(float(c[0][0]),float(c[0][1]))#lon.lat
+		point2 = Point(float(c[1][0]),float(c[1][1]))
+		angle1,angle2,distance = geod.inv(point1.x, point1.y, point2.x, point2.y)
+		# lines.append([[float(lat),float(lon)],[c[1][1],c[1][0]],0,"#5035fc",int(distance/1000),"desc"])
+		lines.append([[c[0][1],c[0][0]],[c[1][1],c[1][0]],0,"#5035fc",int(distance/1000),"desc"])
+
+	data={"lines":lines}
+	return JsonResponse(data)
 
 
 
