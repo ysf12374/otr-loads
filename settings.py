@@ -45,12 +45,15 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'csp.middleware.CSPMiddleware',
+    # 'csp.contrib.rate_limiting.RateLimitedCSPMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    
 ]
 
 ROOT_URLCONF = 'conciergeek.urls'
@@ -66,6 +69,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                # 'csp.context_processors.nonce'
             ],
         },
     },
@@ -82,6 +86,7 @@ WSGI_APPLICATION = 'conciergeek.wsgi.application'
 #         'NAME': 'db.sqlite3',
 #     }
 # }
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.contrib.gis.db.backends.postgis',
@@ -155,3 +160,54 @@ MEDIA_URL = 'media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 POSITIONSTACK_KEY="e4e66d21cb433f08d2e9c39dc3e1061f"
+
+# # https://django-csp.readthedocs.io/en/latest/configuration.html
+# CSP_DEFAULT_SRC = ["*"]
+# # When DEBUG is on we don't require HTTPS on our resources because in a local environment
+# # we generally don't have access to HTTPS. However, when DEBUG is off, such as in our
+# # production environment, we want all our resources to load over HTTPS
+# CSP_UPGRADE_INSECURE_REQUESTS = not DEBUG
+# # For roughly 60% of the requests to our django server we should include the report URI.
+# # This helps keep down the number of CSP reports sent from client web browsers
+# CSP_REPORT_PERCENTAGE = 0.6
+# CSP_FRAME_SRC = ["'self'","https://*.loadotr.com"]
+# CSP_INCLUDE_NONCE_IN = ["script-src"]
+
+# CSP_SCRIPT_SRC = ["*"
+# ]
+
+# CSP_STYLE_SRC = ["*"]
+
+# CSP_IMG_SRC = ["*"
+# ]
+
+CSP_DEFAULT_SRC = ["'self'"]
+
+# CSP_IMG_SRC = ["'*'","*","'self'","'unsafe-inline'",'data','data-uris','data:image/svg+xml','https://api.mapbox.com','https://unpkg.com','https://www.w3.org']
+CSP_IMG_SRC = ["'self'",'data: image/svg+xml','https://api.mapbox.com','https://unpkg.com','https://www.w3.org',
+                'https://d1nhio0ox7pgb.cloudfront.net']
+
+CSP_FRAME_ANCESTORS = ["'self'", 'https://*.loadotr.com' ]
+
+CSP_STYLE_SRC = ["'self'","'unsafe-inline'",
+"'self'",'https://unpkg.com/leaflet@1.7.1/dist/leaflet.css',
+'https://cdnjs.cloudflare.com',
+'https://maxcdn.bootstrapcdn.com',
+'https://fonts.googleapis.com',
+'https://cdn.jsdelivr.net',
+'https://ka-f.fontawesome.com']
+CSP_FONT_SRC = ["'self'","'unsafe-inline'",'https://fonts.gstatic.com','https://ka-f.fontawesome.com']
+CSP_CONNECT_SRC = ["'unsafe-inline'",
+"'self'",'https://ka-f.fontawesome.com','https://maps.googleapis.com','https://router.hereapi.com']
+CSP_SCRIPT_SRC = ["'self'","'unsafe-inline'",'https://dev.sc.loadotr.com',
+     'https://test.sc.loadotr.com',
+	 'https://unpkg.com',
+	 'https://code.jquery.com',
+	 'https://cdnjs.cloudflare.com',
+	 'https://cdn.jsdelivr.net',
+	 'https://maxcdn.bootstrapcdn.com',
+	 'https://kit.fontawesome.com', 'googleanalytics.com','https://rawgit.com','https://d3js.org',
+     'https://d3js.org','https://maps.googleapis.com','https://router.hereapi.com','https://cdn.amcharts.com']
+
+X_FRAME_OPTIONS = 'ALLOW-FROM https://*.loadotr.com'
+
