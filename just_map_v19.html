@@ -762,7 +762,7 @@
             right: 0;
             overflow-x: hidden;
             transition: 0.5s;
-            padding-top: 60px;
+            /* padding-top: 60px; */
             background-color: white;
         }
 
@@ -787,7 +787,6 @@
             margin-left: 50px;
         }
 
-
         @keyframes spin {
             0% {
                 transform: rotate(0deg);
@@ -797,6 +796,46 @@
                 transform: rotate(360deg);
             }
         }
+
+        .sidenav {
+            height: 100%;
+            width: 0;
+            position: fixed;
+            z-index: 1;
+            top: 0;
+            right: 0;
+            background-color: #fff;
+            overflow-x: hidden;
+            transition: 0.5s;
+            padding-top: 60px;
+        }
+​
+        .sidenav a {
+            padding: 8px 8px 8px 32px;
+            text-decoration: none;
+            font-size: 25px;
+            color: #818181;
+            display: block;
+            transition: 0.3s;
+        }
+​
+        .sidenav a:hover {
+            color: #f1f1f1;
+        }
+​
+        .sidenav .closebtn {
+            position: absolute;
+            top: 0;
+            right: 25px;
+            font-size: 36px;
+            margin-left: 50px;
+        }
+​
+        .open {
+            font-size: 30px;
+            cursor: pointer
+        }
+​      
     </style>
 
 </head>
@@ -900,7 +939,42 @@
                 </div>
             </div>
         </div>
+        <div id="sidechart" class="sidechart">
+                                            <a href="javascript:void(0)" class="closebtn" onclick="closeChart()">&times;</a>
+                                            <ul class="nav nav-tabs">
+                                                <li class="active"><a data-toggle="tab" href="#home">Customer</a></li>
+                                                <li><a data-toggle="tab" href="#menu1">Loads</a></li>
+                                                <li><a data-toggle="tab" href="#menu2">Customer Total</a></li>
+                                                <li><a data-toggle="tab" href="#menu3">Customer Table</a></li>
+                                            </ul>
+    
+                                            <div class="tab-content">
+                                                <div id="home" class="tab-pane fade in active show">
+                                                    <div id="heal" style="height:480;">
+                                                        <canvas id="myChart1"></canvas>
+                                                    </div>
+                                                </div>
+                                                <div id="menu1" class="tab-pane fade">
+                                                    <div id="plan" style="height:480px;"></div>
+                                                </div>
+                                                <div id="menu2" class="tab-pane fade">
+                                                    <div id="attack" style="height:480px;">
+                                                </div>
+                                            </div>
+                                            <div id="menu3" class="tab-pane fade">
+                                                <div id="custtable" style="height:480px;">
+                                            </div>
+                                        </div>                                            
+                                          
+                                        </div>
+                                        </div>
 
+                                        <div id="mySidenav" class="sidenav">
+        <a href="javascript:void(0)" class="closebtn" onclick="closeNav()">&times;</a>
+        <div id="sideleft">
+        </div>
+    </div>
+​
         <div>
             <div id="loaders" class="loader"></div>
             <div id="mapContainer" class="map-container row">
@@ -949,35 +1023,6 @@
                                             <div id="attack" style="height:480px;">
                                             </div>
                                         </div> -->
-
-
-                                        <div id="sidechart" class="sidechart">
-                                            <a href="javascript:void(0)" class="closebtn" onclick="closeChart()">&times;</a>
-                                            <ul class="nav nav-tabs">
-                                                <li class="active"><a data-toggle="tab" href="#home">Customer</a></li>
-                                                <li><a data-toggle="tab" href="#menu1">Loads</a></li>
-                                                <li><a data-toggle="tab" href="#menu2">Customer Total</a></li>
-                                            </ul>
-    
-                                            <div class="tab-content">
-                                                <div id="home" class="tab-pane fade in active show">
-                                                    <div id="heal" style="height:480;">
-                                                        <canvas id="myChart1"></canvas>
-                                                    </div>
-                                                </div>
-                                                <div id="menu1" class="tab-pane fade">
-                                                    <div id="plan" style="height:480px;"></div>
-                                                </div>
-                                                <div id="menu2" class="tab-pane fade">
-                                                    <div id="attack" style="height:480px;">
-                                                </div>
-                                            </div>
-                                          
-                                        </div>
-                                        </div>
-
-
-
 
 
 
@@ -2157,6 +2202,9 @@
         }
     </script>
     <script>
+        function closeNav() {
+            document.getElementById("mySidenav").style.width = "0";
+        }
         document.getElementById('loaders').style.display = 'none';
         document.getElementById('mapContainer').style.display = 'block';
         var first = true;
@@ -3450,7 +3498,6 @@ chart.cursor = new am4charts.XYCursor();
             var origin_st = $('#origin-state-select').val();
             var origin_ct = $('#origin-city-select').val();
             var destination_ct = $('#destination-city-select').val();
-
             $.ajax({
                 url: "{% url 'just_heat_chart_v2_api' %}",
                 type: "get", //send it through get method
@@ -3495,14 +3542,61 @@ chart.cursor = new am4charts.XYCursor();
                         series.dataFields.value = "value";
                         series.sequencedInterpolation = true;
                         series.defaultState.transitionDuration = 3000;
-
+                        series.columns.template.events.on("hit", function(ev) {
+                        console.log("clicked on ", ev.target.dataItem.categoryX);
+                        console.log("clicked on ", ev.target.dataItem.categoryY);
+                        $.ajax({
+                                url: "{% url 'just_map_heat_chart_click' %}",
+                                type: "get", //send it through get method
+                                data: {
+                                    lane: ev.target.dataItem.categoryY,
+                                    date_str: ev.target.dataItem.categoryX
+                                },
+                                success: function (response) {
+                                    popups = response.data;
+                                    var popUp = '<table class="table table-striped" style="width:100%">\
+                                        <thead class="thead-dark">\
+                                    <tr>\
+                                        <th scope="col">Customer Name</th>\
+                                        <th scope="col">Loads Count</th>\
+                                        <th scope="col">Time Taken to Pickup[Avg-Hrs]</th>\
+                                        <th scope="col">Rate [Average]</th>\
+                                    </tr>\
+                                </thead>';
+                                    popups.forEach(function (itemx, indexx) {
+                                        popUp+='<tr class="table-active">\
+                                                    <td>' + itemx[0] + '</td>\
+                                                    <td>' + itemx[1].toString() + '</td>\
+                                                    <td>' + itemx[2].toString() + '</td>\
+                                                    <td>' + itemx[3].toString() + '</td>\
+                                                </tr>';
+                                    });
+                                    var custtable=document.getElementById('custtable');
+                                    custtable.innerHTML+=popUp;
+                                    var sideleft=document.getElementById('sideleft');
+                                    sideleft.innerHTML+=popUp;
+                                    /* series.tooltipHTML = popUp; */
+                                    series.columns.template.tooltipHTML = popUp;
+                                    document.getElementById('sidechart').style.width =
+                                        "500px";
+                                },
+                                error: function (xhr) {
+                                    //Do Something to handle error
+                                    console.log(xhr);
+                                    // document.getElementById('loaders').style.display = 'none';
+                                    // document.getElementById('mapContainer').style.display = 'block';
+                                }
+                            });
+                            document.getElementById("mySidenav").style.width = "400px";
+                        }, this);
+                        
                         var bgColor = new am4core.InterfaceColorSet().getFor("background");
 
                         var columnTemplate = series.columns.template;
                         columnTemplate.strokeWidth = 1;
                         columnTemplate.strokeOpacity = 0.2;
                         columnTemplate.stroke = bgColor;
-                        columnTemplate.tooltipText = "{selector}, {selector0}: {value.workingValue.formatNumber('#.')}, Customer Rate: ${customer_rate}";
+                        // columnTemplate.tooltipText = "{selector}, {selector0}: {value.workingValue.formatNumber('#.')}, Customer Rate: ${customer_rate}";
                         columnTemplate.width = am4core.percent(100);
                         columnTemplate.height = am4core.percent(100);
 
@@ -3605,6 +3699,52 @@ chart.cursor = new am4charts.XYCursor();
                         series.sequencedInterpolation = true;
                         series.defaultState.transitionDuration = 3000;
 
+                        series.columns.template.events.on("hit", function(ev) {
+                        console.log("clicked on ", ev.target.dataItem.categoryX);
+                        console.log("clicked on ", ev.target.dataItem.categoryY);
+                        $.ajax({
+                                url: "{% url 'just_map_heat_chart_click' %}",
+                                type: "get", //send it through get method
+                                data: {
+                                    lane: ev.target.dataItem.categoryY,
+                                    date_str: ev.target.dataItem.categoryX
+                                },
+                                success: function (response) {
+                                    popups = response.data;
+                                    var popUp = '<table class="table table-striped" style="width:100%">\
+                                        <thead class="thead-dark">\
+                                    <tr>\
+                                        <th scope="col">Customer Name</th>\
+                                        <th scope="col">Loads Count</th>\
+                                        <th scope="col">Time Taken to Pickup[Avg-Hrs]</th>\
+                                        <th scope="col">Rate [Average]</th>\
+                                    </tr>\
+                                </thead>';
+                                    popups.forEach(function (itemx, indexx) {
+                                        popUp+='<tr class="table-active">\
+                                                    <td>' + itemx[0] + '</td>\
+                                                    <td>' + itemx[1].toString() + '</td>\
+                                                    <td>' + itemx[2].toString() + '</td>\
+                                                    <td>' + itemx[3].toString() + '</td>\
+                                                </tr>';
+                                    });
+                                    var custtable=document.getElementById('custtable');
+                                    custtable.innerHTML+=popUp;
+                                    var sideleft=document.getElementById('sideleft');
+                                    sideleft.innerHTML+=popUp;
+                                    series.tooltipHTML = popUp;
+                                    document.getElementById('sidechart').style.width =
+                                        "500px";
+                                },
+                                error: function (xhr) {
+                                    //Do Something to handle error
+                                    console.log(xhr);
+                                    // document.getElementById('loaders').style.display = 'none';
+                                    // document.getElementById('mapContainer').style.display = 'block';
+                                }
+                            });
+                            document.getElementById("mySidenav").style.width = "400px";
+                        }, this);
                         var bgColor = new am4core.InterfaceColorSet().getFor("background");
 
                         var columnTemplate = series.columns.template;
@@ -3714,6 +3854,52 @@ chart.cursor = new am4charts.XYCursor();
                         series.sequencedInterpolation = true;
                         series.defaultState.transitionDuration = 3000;
 
+                        series.columns.template.events.on("hit", function(ev) {
+                        console.log("clicked on ", ev.target.dataItem.categoryX);
+                        console.log("clicked on ", ev.target.dataItem.categoryY);
+                        $.ajax({
+                                url: "{% url 'just_map_heat_chart_click' %}",
+                                type: "get", //send it through get method
+                                data: {
+                                    lane: ev.target.dataItem.categoryY,
+                                    date_str: ev.target.dataItem.categoryX
+                                },
+                                success: function (response) {
+                                    popups = response.data;
+                                    var popUp = '<table class="table table-striped" style="width:100%">\
+                                        <thead class="thead-dark">\
+                                    <tr>\
+                                        <th scope="col">Customer Name</th>\
+                                        <th scope="col">Loads Count</th>\
+                                        <th scope="col">Time Taken to Pickup[Avg-Hrs]</th>\
+                                        <th scope="col">Rate [Average]</th>\
+                                    </tr>\
+                                </thead>';
+                                    popups.forEach(function (itemx, indexx) {
+                                        popUp+='<tr class="table-active">\
+                                                    <td>' + itemx[0] + '</td>\
+                                                    <td>' + itemx[1].toString() + '</td>\
+                                                    <td>' + itemx[2].toString() + '</td>\
+                                                    <td>' + itemx[3].toString() + '</td>\
+                                                </tr>';
+                                    });
+                                    var custtable=document.getElementById('custtable');
+                                    custtable.innerHTML+=popUp;
+                                    var sideleft=document.getElementById('sideleft');
+                                    sideleft.innerHTML+=popUp;
+                                    series.tooltipHTML = popUp;
+                                    document.getElementById('sidechart').style.width =
+                                        "500px";
+                                },
+                                error: function (xhr) {
+                                    //Do Something to handle error
+                                    console.log(xhr);
+                                    // document.getElementById('loaders').style.display = 'none';
+                                    // document.getElementById('mapContainer').style.display = 'block';
+                                }
+                            });
+                            document.getElementById("mySidenav").style.width = "400px";
+                        }, this);
                         var bgColor = new am4core.InterfaceColorSet().getFor("background");
 
                         var columnTemplate = series.columns.template;
@@ -3822,6 +4008,52 @@ chart.cursor = new am4charts.XYCursor();
                         series.sequencedInterpolation = true;
                         series.defaultState.transitionDuration = 3000;
 
+                        series.columns.template.events.on("hit", function(ev) {
+                        console.log("clicked on ", ev.target.dataItem.categoryX);
+                        console.log("clicked on ", ev.target.dataItem.categoryY);
+                        $.ajax({
+                                url: "{% url 'just_map_heat_chart_click' %}",
+                                type: "get", //send it through get method
+                                data: {
+                                    lane: ev.target.dataItem.categoryY,
+                                    date_str: ev.target.dataItem.categoryX
+                                },
+                                success: function (response) {
+                                    popups = response.data;
+                                    var popUp = '<table class="table table-striped" style="width:100%">\
+                                        <thead class="thead-dark">\
+                                    <tr>\
+                                        <th scope="col">Customer Name</th>\
+                                        <th scope="col">Loads Count</th>\
+                                        <th scope="col">Time Taken to Pickup[Avg-Hrs]</th>\
+                                        <th scope="col">Rate [Average]</th>\
+                                    </tr>\
+                                </thead>';
+                                    popups.forEach(function (itemx, indexx) {
+                                        popUp+='<tr class="table-active">\
+                                                    <td>' + itemx[0] + '</td>\
+                                                    <td>' + itemx[1].toString() + '</td>\
+                                                    <td>' + itemx[2].toString() + '</td>\
+                                                    <td>' + itemx[3].toString() + '</td>\
+                                                </tr>';
+                                    });
+                                    var custtable=document.getElementById('custtable');
+                                    custtable.innerHTML+=popUp;
+                                    var sideleft=document.getElementById('sideleft');
+                                    sideleft.innerHTML+=popUp;
+                                    series.tooltipHTML = popUp;
+                                    document.getElementById('sidechart').style.width =
+                                        "500px";
+                                },
+                                error: function (xhr) {
+                                    //Do Something to handle error
+                                    console.log(xhr);
+                                    // document.getElementById('loaders').style.display = 'none';
+                                    // document.getElementById('mapContainer').style.display = 'block';
+                                }
+                            });
+                            document.getElementById("mySidenav").style.width = "400px";
+                        }, this);
                         var bgColor = new am4core.InterfaceColorSet().getFor("background");
 
                         var columnTemplate = series.columns.template;
@@ -3931,6 +4163,52 @@ chart.cursor = new am4charts.XYCursor();
                         series.sequencedInterpolation = true;
                         series.defaultState.transitionDuration = 3000;
 
+                        series.columns.template.events.on("hit", function(ev) {
+                        console.log("clicked on ", ev.target.dataItem.categoryX);
+                        console.log("clicked on ", ev.target.dataItem.categoryY);
+                        $.ajax({
+                                url: "{% url 'just_map_heat_chart_click' %}",
+                                type: "get", //send it through get method
+                                data: {
+                                    lane: ev.target.dataItem.categoryY,
+                                    date_str: ev.target.dataItem.categoryX
+                                },
+                                success: function (response) {
+                                    popups = response.data;
+                                    var popUp = '<table class="table table-striped" style="width:100%">\
+                                        <thead class="thead-dark">\
+                                    <tr>\
+                                        <th scope="col">Customer Name</th>\
+                                        <th scope="col">Loads Count</th>\
+                                        <th scope="col">Time Taken to Pickup[Avg-Hrs]</th>\
+                                        <th scope="col">Rate [Average]</th>\
+                                    </tr>\
+                                </thead>';
+                                    popups.forEach(function (itemx, indexx) {
+                                        popUp+='<tr class="table-active">\
+                                                    <td>' + itemx[0] + '</td>\
+                                                    <td>' + itemx[1].toString() + '</td>\
+                                                    <td>' + itemx[2].toString() + '</td>\
+                                                    <td>' + itemx[3].toString() + '</td>\
+                                                </tr>';
+                                    });
+                                    var custtable=document.getElementById('custtable');
+                                    custtable.innerHTML+=popUp;
+                                    var sideleft=document.getElementById('sideleft');
+                                    sideleft.innerHTML+=popUp;
+                                    series.tooltipHTML = popUp;
+                                    document.getElementById('sidechart').style.width =
+                                        "500px";
+                                },
+                                error: function (xhr) {
+                                    //Do Something to handle error
+                                    console.log(xhr);
+                                    // document.getElementById('loaders').style.display = 'none';
+                                    // document.getElementById('mapContainer').style.display = 'block';
+                                }
+                            });
+                            document.getElementById("mySidenav").style.width = "400px";
+                        }, this);
                         var bgColor = new am4core.InterfaceColorSet().getFor("background");
 
                         var columnTemplate = series.columns.template;
@@ -4041,6 +4319,52 @@ chart.cursor = new am4charts.XYCursor();
                         series.sequencedInterpolation = true;
                         series.defaultState.transitionDuration = 3000;
 
+                        series.columns.template.events.on("hit", function(ev) {
+                        console.log("clicked on ", ev.target.dataItem.categoryX);
+                        console.log("clicked on ", ev.target.dataItem.categoryY);
+                        $.ajax({
+                                url: "{% url 'just_map_heat_chart_click' %}",
+                                type: "get", //send it through get method
+                                data: {
+                                    lane: ev.target.dataItem.categoryY,
+                                    date_str: ev.target.dataItem.categoryX
+                                },
+                                success: function (response) {
+                                    popups = response.data;
+                                    var popUp = '<table class="table table-striped" style="width:100%">\
+                                        <thead class="thead-dark">\
+                                    <tr>\
+                                        <th scope="col">Customer Name</th>\
+                                        <th scope="col">Loads Count</th>\
+                                        <th scope="col">Time Taken to Pickup[Avg-Hrs]</th>\
+                                        <th scope="col">Rate [Average]</th>\
+                                    </tr>\
+                                </thead>';
+                                    popups.forEach(function (itemx, indexx) {
+                                        popUp+='<tr class="table-active">\
+                                                    <td>' + itemx[0] + '</td>\
+                                                    <td>' + itemx[1].toString() + '</td>\
+                                                    <td>' + itemx[2].toString() + '</td>\
+                                                    <td>' + itemx[3].toString() + '</td>\
+                                                </tr>';
+                                    });
+                                    var custtable=document.getElementById('custtable');
+                                    custtable.innerHTML+=popUp;
+                                    var sideleft=document.getElementById('sideleft');
+                                    sideleft.innerHTML+=popUp;
+                                    series.tooltipHTML = popUp;
+                                    document.getElementById('sidechart').style.width =
+                                        "500px";
+                                },
+                                error: function (xhr) {
+                                    //Do Something to handle error
+                                    console.log(xhr);
+                                    // document.getElementById('loaders').style.display = 'none';
+                                    // document.getElementById('mapContainer').style.display = 'block';
+                                }
+                            });
+                            document.getElementById("mySidenav").style.width = "400px";
+                        }, this);
                         var bgColor = new am4core.InterfaceColorSet().getFor("background");
 
                         var columnTemplate = series.columns.template;
@@ -4151,6 +4475,52 @@ chart.cursor = new am4charts.XYCursor();
                         series.sequencedInterpolation = true;
                         series.defaultState.transitionDuration = 3000;
 
+                        series.columns.template.events.on("hit", function(ev) {
+                        console.log("clicked on ", ev.target.dataItem.categoryX);
+                        console.log("clicked on ", ev.target.dataItem.categoryY);
+                        $.ajax({
+                                url: "{% url 'just_map_heat_chart_click' %}",
+                                type: "get", //send it through get method
+                                data: {
+                                    lane: ev.target.dataItem.categoryY,
+                                    date_str: ev.target.dataItem.categoryX
+                                },
+                                success: function (response) {
+                                    popups = response.data;
+                                    var popUp = '<table class="table table-striped" style="width:100%">\
+                                        <thead class="thead-dark">\
+                                    <tr>\
+                                        <th scope="col">Customer Name</th>\
+                                        <th scope="col">Loads Count</th>\
+                                        <th scope="col">Time Taken to Pickup[Avg-Hrs]</th>\
+                                        <th scope="col">Rate [Average]</th>\
+                                    </tr>\
+                                </thead>';
+                                    popups.forEach(function (itemx, indexx) {
+                                        popUp+='<tr class="table-active">\
+                                                    <td>' + itemx[0] + '</td>\
+                                                    <td>' + itemx[1].toString() + '</td>\
+                                                    <td>' + itemx[2].toString() + '</td>\
+                                                    <td>' + itemx[3].toString() + '</td>\
+                                                </tr>';
+                                    });
+                                    var custtable=document.getElementById('custtable');
+                                    custtable.innerHTML+=popUp;
+                                    var sideleft=document.getElementById('sideleft');
+                                    sideleft.innerHTML+=popUp;
+                                    series.tooltipHTML = popUp;
+                                    document.getElementById('sidechart').style.width =
+                                        "500px";
+                                },
+                                error: function (xhr) {
+                                    //Do Something to handle error
+                                    console.log(xhr);
+                                    // document.getElementById('loaders').style.display = 'none';
+                                    // document.getElementById('mapContainer').style.display = 'block';
+                                }
+                            });
+                            document.getElementById("mySidenav").style.width = "400px";
+                        }, this);
                         var bgColor = new am4core.InterfaceColorSet().getFor("background");
 
                         var columnTemplate = series.columns.template;
@@ -4261,6 +4631,52 @@ chart.cursor = new am4charts.XYCursor();
                         series.sequencedInterpolation = true;
                         series.defaultState.transitionDuration = 3000;
 
+                        series.columns.template.events.on("hit", function(ev) {
+                        console.log("clicked on ", ev.target.dataItem.categoryX);
+                        console.log("clicked on ", ev.target.dataItem.categoryY);
+                        $.ajax({
+                                url: "{% url 'just_map_heat_chart_click' %}",
+                                type: "get", //send it through get method
+                                data: {
+                                    lane: ev.target.dataItem.categoryY,
+                                    date_str: ev.target.dataItem.categoryX
+                                },
+                                success: function (response) {
+                                    popups = response.data;
+                                    var popUp = '<table class="table table-striped" style="width:100%">\
+                                        <thead class="thead-dark">\
+                                    <tr>\
+                                        <th scope="col">Customer Name</th>\
+                                        <th scope="col">Loads Count</th>\
+                                        <th scope="col">Time Taken to Pickup[Avg-Hrs]</th>\
+                                        <th scope="col">Rate [Average]</th>\
+                                    </tr>\
+                                </thead>';
+                                    popups.forEach(function (itemx, indexx) {
+                                        popUp+='<tr class="table-active">\
+                                                    <td>' + itemx[0] + '</td>\
+                                                    <td>' + itemx[1].toString() + '</td>\
+                                                    <td>' + itemx[2].toString() + '</td>\
+                                                    <td>' + itemx[3].toString() + '</td>\
+                                                </tr>';
+                                    });
+                                    var custtable=document.getElementById('custtable');
+                                    custtable.innerHTML+=popUp;
+                                    var sideleft=document.getElementById('sideleft');
+                                    sideleft.innerHTML+=popUp;
+                                    series.tooltipHTML = popUp;
+                                    document.getElementById('sidechart').style.width =
+                                        "500px";
+                                },
+                                error: function (xhr) {
+                                    //Do Something to handle error
+                                    console.log(xhr);
+                                    // document.getElementById('loaders').style.display = 'none';
+                                    // document.getElementById('mapContainer').style.display = 'block';
+                                }
+                            });
+                            document.getElementById("mySidenav").style.width = "400px";
+                        }, this);
                         var bgColor = new am4core.InterfaceColorSet().getFor("background");
 
                         var columnTemplate = series.columns.template;
@@ -4429,10 +4845,7 @@ chart.cursor = new am4charts.XYCursor();
             lon = e.latlng.lng;
             ProcessClick(lat, lon)
         });
-        var century21icon = L.icon({
-            iconUrl: "{% static 'images/pngaaa.com-381320.png' %}",
-            iconSize: [20, 20]
-            });
+
         function ProcessClick(lat, lon) {
             console.log("You clicked the map at LAT: " + lat + " and LONG: " + lon);
             // //Clear existing marker, circle, and selected points if selecting new points
@@ -4483,12 +4896,31 @@ chart.cursor = new am4charts.XYCursor();
                                     opacity: 0.5
                                     // snakingSpeed: 150
                                 });
+                    var arrowHead = L.polylineDecorator(line, {
+                        patterns: [{
+                                offset: '100%',
+                                repeat: 0,
+                                symbol: L.Symbol.arrowHead({
+                                    pixelSize: 5,
+                                    polygon: false,
+                                    pathOptions: {
+                                        color: item[3],
+                                        stroke: true
+                                    }
+                                })
+                            }]
+                        });
+                    arrowHead.addTo(map);
                     popUp = '<table style="width:100%">\
                                 <tr>\
                                     <th>Shortest Distance</th>\
+                                    <th>Origin</th>\
+                                    <th>Destination</th>\
                                 </tr>\
                                 <tr>\
                                     <td>' + item[4] + '</td>\
+                                    <td>' + item[5][0] + '</td>\
+                                    <td>' + item[5][1] + '</td>\
                                 </tr>\
                                 </table>';
                                 // <p>'+item[5]+'</p>';
@@ -4509,8 +4941,9 @@ chart.cursor = new am4charts.XYCursor();
 
         
         function SelectPoints(lat, lon) {
-            // var dist = document.getElementById("miles").value;
-            var dist = '100';
+            map.setView([lat, lon], 12);
+            var dist = document.getElementById("miles").value;
+            // var dist = '100';
             xy = [lat, lon]; //center point of circle
             var theRadius = parseInt(dist) *
                 1609.34 //1609.34 meters in a mile //dist is a string so it's convered to an Interger.
@@ -4551,9 +4984,16 @@ chart.cursor = new am4charts.XYCursor();
                         }
                     });
                     theMarker = L.marker([lat, lon]);
+                    theMarker.on('click', markerOnClick);
                     theMarker.addTo(map);
                     var lines = response.lines;
+                    var century21icon = L.icon({
+                    // iconUrl: "{% static 'images/pngaaa.com-381320.png' %}",
+                    iconUrl: 'https://freewareimages.s3.amazonaws.com/pngaaa.com-381320.png',
+                    iconSize: [20, 20]
+                    });
                     lines.forEach(function (item, index) {
+                    console.log(item);
                     try {
                         // app_id=bAF20VgD8WeKtvNvP8fW&
                         $.ajax({
@@ -4579,8 +5019,28 @@ chart.cursor = new am4charts.XYCursor();
                                     //                                     opacity: 0.5
                                     //                                     // snakingSpeed: 150
                                     //                                 });
+                                    popUp = '<table style="width:100%">\
+                                    <tr>\
+                                        <th>Customer Name</th>\
+                                        <th>Rate [Average]</th>\
+                                        <th>Loads Count ['+item[6].toString()+']</th>\
+                                        <th>Shortest Distance</th>\
+                                        <th>ETA</th>\
+                                    </tr>';
+                        popups=item[5];
+                        popups.forEach(function (itemx, indexx) {
+                            popUp+='                                    <tr>\
+                                        <td>' + itemx[0] + '</td>\
+                                        <td>' + itemx[1].toString() + '</td>\
+                                        <td>' + itemx[2].toString() + '</td>\
+                                        <td>' + distance + '</td>\
+                                        <td>' + ETA + '</td>\
+                                    </tr>';
+                        });
+                        popUp+='</table>';
                                     var marker = new L.Marker([parseFloat(item[1][0]), parseFloat(item[1][1])],{icon: century21icon});
                                     marker.on('click', markerOnClick);
+                                    marker.bindTooltip(popUp);
                                     marker.addTo(map);
 
                                     // var arrowHead = L.polylineDecorator(line, {
@@ -4617,8 +5077,28 @@ chart.cursor = new am4charts.XYCursor();
                                 error: function(xhr) {
                                     //Do Something to handle error
                                     console.log(xhr);
+                                    popUp = '<table  class="table table-striped" style="width:100%">\
+                                        <thead class="thead-dark">\
+                                    <tr>\
+                                        <th>Carrier Name</th>\
+                                        <th>Rate [Average]</th>\
+                                        <th>Loads Count ['+item[6].toString()+']</th>\
+                                        <th>Shortest Distance</th>\
+                                    </tr>\
+                                </thead>';
+                        popups=item[5];
+                        popups.forEach(function (itemx, indexx) {
+                            popUp+='<tr class="table-active">\
+                                        <td>' + itemx[0] + '</td>\
+                                        <td>' + itemx[1].toString() + '</td>\
+                                        <td>' + itemx[2].toString() + '</td>\
+                                        <td>' + item[4].toString() + '</td>\
+                                    </tr>';
+                        });
+                        popUp+='</table>';
                                     var marker = new L.Marker([parseFloat(item[1][0]), parseFloat(item[1][1])],{icon: century21icon});
                                     marker.on('click', markerOnClick);
+                                    marker.bindTooltip(popUp);
                                     marker.addTo(map);
                                     // var line = L.polyline([[parseFloat(item[0][0]), parseFloat(item[0][1])],
                                     //         [parseFloat(item[1][0]), parseFloat(item[1][1])]
