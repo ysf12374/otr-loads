@@ -65,6 +65,8 @@ urlpatterns = [
 	path('just_map_loads_deadhead', views.just_map_loads_deadhead, name='just_map_loads_deadhead'),
 	path('just_heat_chart_v2_api', views.just_heat_chart_v2_api, name='just_heat_chart_v2_api'),
 	path('just_map_deadhead_lines', views.just_map_deadhead_lines, name='just_map_deadhead_lines'),
+	path('just_map_deadhead_rig_lines', views.just_map_deadhead_rig_lines, name='just_map_deadhead_rig_lines'),
+	path('just_map_heat_chart_click', views.just_map_heat_chart_click, name='just_map_heat_chart_click'),
 
 ]
 
