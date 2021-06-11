@@ -760,7 +760,7 @@
             right: 0;
             overflow-x: hidden;
             transition: 0.5s;
-            padding-top: 60px;
+            /* padding-top: 60px; */
             background-color: white;
         }
 
@@ -935,7 +935,7 @@
                                                 <li><a data-toggle="tab" href="#menu2">Equipment</a></li>
                                                 <li><a data-toggle="tab" href="#home">Carrier(Bar)</a></li>
                                                 <li><a data-toggle="tab" href="#menu1">Carrier(Line)</a></li>
-                                                <li><a data-toggle="tab" href="#menu3">Carrier[RealTime]</a></li>
+                                                <!-- <li><a data-toggle="tab" href="#menu3">Carrier[RealTime]</a></li> -->
                                             </ul>
     
                                             <div class="tab-content">
@@ -957,7 +957,7 @@
                                                     </div>
                                                 </div>
                                                 <div id="menu4" class="tab-pane fade in active show">
-                                                    <div id="strategy" style="height: 500px;">
+                                                    <div id="strategy" style="height: 600px;">
                                                     </div>
                                                 </div>
                                                 <div id="sheild" style="height: 500px;">
@@ -2846,7 +2846,7 @@ hoverState.properties.strokeOpacity = 0.7;
                 }
             });
         document.getElementById('sidechart').style.width =
-                                    "500px";
+                                    "850px";
       });
 }
 
@@ -2909,8 +2909,81 @@ SelectPoints(lat,lon)
 
 }
 
+function markerOnClick(e)
+        {
+            map.eachLayer(function (layer) {
+                if (!layer._url) {
+                    if (!layer.dragging) {
+                            map.removeLayer(layer);
+                        }
+                    }
+            });
+            $.ajax({
+                url: "{% url 'just_map_deadhead_rig_lines' %}",
+                type: "get", //send it through get method
+                data: {
+                    lat: e.latlng.lat,
+                    lon: e.latlng.lng,
+                },
+                success: function (response) {
+                    var lines = response.lines;
+                    lines.forEach(function (item, index) {
+                    try {
+                    var line = L.polyline([[parseFloat(item[0][0]), parseFloat(item[0][1])],
+                                [parseFloat(item[1][0]), parseFloat(item[1][1])]
+                                ], {
+                                    color: item[3],
+                                    vertices: 200,
+                                    weight: 3,//item[2],
+                                    opacity: 0.5
+                                    // snakingSpeed: 150
+                                });
+                    var arrowHead = L.polylineDecorator(line, {
+                        patterns: [{
+                                offset: '100%',
+                                repeat: 0,
+                                symbol: L.Symbol.arrowHead({
+                                    pixelSize: 5,
+                                    polygon: false,
+                                    pathOptions: {
+                                        color: item[3],
+                                        stroke: true
+                                    }
+                                })
+                            }]
+                        });
+                    arrowHead.addTo(map);
+                    popUp = '<table style="width:100%">\
+                                <tr>\
+                                    <th>Shortest Distance</th>\
+                                    <th>Origin</th>\
+                                    <th>Destination</th>\
+                                </tr>\
+                                <tr>\
+                                    <td>' + item[4] + '</td>\
+                                    <td>' + item[5][0] + '</td>\
+                                    <td>' + item[5][1] + '</td>\
+                                </tr>\
+                                </table>';
+                                // <p>'+item[5]+'</p>';
+                    line.bindTooltip(popUp);
+                    line.addTo(map);
+                    }
+                    catch(err){
+                        console.log(err);
+                    }
+                  });
+                },
+                error: function (xhr) {
+                    //Do Something to handle error
+                    console.log(xhr);
+                }
+            });
+        }
+
 
 function SelectPoints(lat,lon){
+    map.setView([lat, lon], 12);
 var dist = document.getElementById("miles").value;
 // var dist = '100';
 xy = [lat,lon];  //center point of circle
@@ -2934,7 +3007,17 @@ $.ajax({
                 legend.remove(map);
                 }
         });
+        theMarker = L.marker([lat, lon]);
+        theMarker.on('click', markerOnClick);
+        theMarker.addTo(map);
         var lines = response.lines;
+        var century21icon = L.icon({
+                        // iconUrl: "{% static 'images/pngaaa.com-381320.png' %}",
+                        // iconUrl: "{% static 'images/pngaaa.png' %}",
+                        // iconUrl: 'https://freewareimages.s3.amazonaws.com/pngaaa.com-381320.png',
+                        iconUrl: 'https://freewareimages.s3.amazonaws.com/pngaaa.png',
+                        iconSize: [20, 20]
+                        });
         lines.forEach(function (item, index) {
           try {
             // app_id=bAF20VgD8WeKtvNvP8fW&
@@ -2952,7 +3035,30 @@ $.ajax({
                         ETA=parseInt(ETA)/60;
                         ETA=ETA.toFixed(2);
                         ETA= ETA.toString();
-                        var line = L.polyline([[parseFloat(item[0][0]), parseFloat(item[0][1])],
+                        popUp = '<table style="width:100%">\
+                                    <tr>\
+                                        <th>Carrier Name</th>\
+                                        <th>Rate [Average]</th>\
+                                        <th>Loads Count ['+item[6].toString()+']</th>\
+                                        <th>Shortest Distance</th>\
+                                        <th>ETA</th>\
+                                    </tr>';
+                        popups=item[5];
+                        popups.forEach(function (itemx, indexx) {
+                            popUp+='                                    <tr>\
+                                        <td>' + itemx[0] + '</td>\
+                                        <td>' + itemx[1].toString() + '</td>\
+                                        <td>' + itemx[2].toString() + '</td>\
+                                        <td>' + distance + '</td>\
+                                        <td>' + ETA + '</td>\
+                                    </tr>';
+                        });
+                        popUp+='</table>';
+                        var marker = new L.Marker([parseFloat(item[1][0]), parseFloat(item[1][1])],{icon: century21icon});
+                        marker.on('click', markerOnClick);
+                        marker.bindTooltip(popUp);
+                        marker.addTo(map);
+/*                         var line = L.polyline([[parseFloat(item[0][0]), parseFloat(item[0][1])],
                                     [parseFloat(item[1][0]), parseFloat(item[1][1])]
                                                         ], {
                                                             color: item[3],
@@ -2990,12 +3096,35 @@ $.ajax({
                                 </table>';
                                 // <p>'+item[5]+'</p>';
                         line.bindTooltip(popUp);
-                        line.addTo(map);
+                        line.addTo(map); */
                     },
                     error: function(xhr) {
                         //Do Something to handle error
                         console.log(xhr);
-                        var line = L.polyline([[parseFloat(item[0][0]), parseFloat(item[0][1])],
+                        popUp = '<table class="table table-striped" style="width:100%">\
+                            <thead class="thead-dark">\
+                                    <tr>\
+                                        <th scope="col">Carrier Name</th>\
+                                        <th scope="col">Rate [Average]</th>\
+                                        <th scope="col">Loads Count ['+item[6].toString()+']</th>\
+                                        <th scope="col">Shortest Distance</th>\
+                                    </tr>\
+                                    </thead>';
+                        popups=item[5];
+                        popups.forEach(function (itemx, indexx) {
+                            popUp+='<tr class="table-active">\
+                                        <td>' + itemx[0] + '</td>\
+                                        <td>' + itemx[1].toString() + '</td>\
+                                        <td>' + itemx[2].toString() + '</td>\
+                                        <td>' + item[4].toString() + '</td>\
+                                    </tr>';
+                        });
+                        popUp+='</table>';
+                        var marker = new L.Marker([parseFloat(item[1][0]), parseFloat(item[1][1])],{icon: century21icon});
+                        marker.on('click', markerOnClick);
+                        marker.bindTooltip(popUp);
+                        marker.addTo(map);
+/*                         var line = L.polyline([[parseFloat(item[0][0]), parseFloat(item[0][1])],
                                 [parseFloat(item[1][0]), parseFloat(item[1][1])]
                                                     ], {
                                                         color: item[3],
@@ -3033,7 +3162,7 @@ $.ajax({
                                 </table>';
                                 // <p>'+item[5]+'</p>';
                         line.bindTooltip(popUp);
-                        line.addTo(map);
+                        line.addTo(map); */
                     }
             });
 
