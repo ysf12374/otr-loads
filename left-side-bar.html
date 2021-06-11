@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css"
+        integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
+    <style>
+        .sidenav {
+            height: 100%;
+            width: 0;
+            position: fixed;
+            z-index: 1;
+            top: 0;
+            left: -31px;
+            background-color: #fff;
+            overflow-x: hidden;
+            transition: 0.5s;
+            padding: 60px 15px;
+            border-right: 1px solid #efefef;
+        }
+
+        .sidenav a {
+            padding: 8px 8px 8px 32px;
+            text-decoration: none;
+            font-size: 25px;
+            color: #818181;
+            display: block;
+            transition: 0.3s;
+        }
+
+        .sidenav a:hover {
+            color: #f1f1f1;
+        }
+
+        .sidenav .closebtn {
+            position: absolute;
+            top: 0;
+            right: 25px;
+            font-size: 36px;
+            margin-left: 50px;
+        }
+
+        .open {
+            font-size: 30px;
+            cursor: pointer;
+        }
+
+        .customer-table .table {
+            background-color: #01316d;
+            color: #fff;
+        }
+
+        .shipper-table .table {
+            background-color: #0454b9;
+            color: #fff;
+        }
+
+        .receiver-table .table {
+            background-color: #287fff;
+            color: #fff;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div id="mySidenav" class="sidenav shadow-sm">
+            <a href="javascript:void(0)" class="closebtn" onclick="closeNav()">&times;</a>
+            <div class="leftside-table">
+                <table class="table table-striped table-hover customer-table">
+                    <thead class="table">
+                        <tr>
+                            <th scope="col">Customer Name</th>
+                            <th scope="col">Loads Count</th>
+                            <th scope="col">Time Taken to Pickup[Avg-Hrs]</th>
+                            <th scope="col">Rate [Average]</th>
+                        </tr>
+                    </thead>
+                    <tr class="table-light">
+                        <td>3M COMPANY- COLLECT & PREPAID</td>
+                        <td>120</td>
+                        <td>222</td>
+                        <td>33</td>
+                    </tr>
+                    <tr class="table-light">
+                        <td>ABC Company name</td>
+                        <td>120</td>
+                        <td>222</td>
+                        <td>33</td>
+                    </tr>
+                    <tr class="table-light">
+                        <td>XYZ Company name</td>
+                        <td>120</td>
+                        <td>222</td>
+                        <td>33</td>
+                    </tr>
+                </table>
+                <table class="table table-striped table-hover shipper-table">
+                    <thead class="table">
+                        <tr>
+                            <th scope="col">Customer Name</th>
+                            <th scope="col">Loads Count</th>
+                            <th scope="col">Time Taken to Pickup[Avg-Hrs]</th>
+                            <th scope="col">Rate [Average]</th>
+                        </tr>
+                    </thead>
+                    <tr class="table-light">
+                        <td>3M COMPANY- COLLECT & PREPAID</td>
+                        <td>120</td>
+                        <td>222</td>
+                        <td>33</td>
+                    </tr>
+                    <tr class="table-light">
+                        <td>ABC Company name</td>
+                        <td>120</td>
+                        <td>222</td>
+                        <td>33</td>
+                    </tr>
+                    <tr class="table-light">
+                        <td>XYZ Company name</td>
+                        <td>120</td>
+                        <td>222</td>
+                        <td>33</td>
+                    </tr>
+                </table>
+                <table class="table table-striped table-hover receiver-table">
+                    <thead class="table">
+                        <tr>
+                            <th scope="col">Customer Name</th>
+                            <th scope="col">Loads Count</th>
+                            <th scope="col">Time Taken to Pickup[Avg-Hrs]</th>
+                            <th scope="col">Rate [Average]</th>
+                        </tr>
+                    </thead>
+                    <tr class="table-light">
+                        <td>3M COMPANY- COLLECT & PREPAID</td>
+                        <td>120</td>
+                        <td>222</td>
+                        <td>33</td>
+                    </tr>
+                    <tr class="table-light">
+                        <td>ABC Company name</td>
+                        <td>120</td>
+                        <td>222</td>
+                        <td>33</td>
+                    </tr>
+                    <tr class="table-light">
+                        <td>XYZ Company name</td>
+                        <td>120</td>
+                        <td>222</td>
+                        <td>33</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        <h2>Some content here</h2>
+        <h2 class="open" onclick="openNav()">Click here to open left sidebar</h2>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-1.9.1.min.js"></script>
+    <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"
+        integrity="sha256-T0Vest3yCU7pafRw9r+settMBX6JkKN06dqBnpQ8d30=" crossorigin="anonymous"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"
+        integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl" crossorigin="anonymous">
+    </script>
+    <script>
+        function openNav() {
+            document.getElementById("mySidenav").style.width = "600px";
+            document.getElementById("mySidenav").style.left = "0px";
+        }
+
+        function closeNav() {
+            document.getElementById("mySidenav").style.width = "0";
+            document.getElementById("mySidenav").style.left = "-31px";
+        }
+    </script>
+
+
+</body>
+
+</html>
