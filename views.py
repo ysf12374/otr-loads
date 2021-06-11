@@ -3636,7 +3636,7 @@ def just_map_hex(response):
 	usa_hex_2 AS hexes \
 	INNER JOIN \
 	otr_data_loads AS odl \
-	ON ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry) where odl.delivery_date \
+	ON ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry) where odl.status='RELEASED' AND odl.delivery_date \
 			BETWEEN '{date1.year}-{date1.month}-{date1.day}' AND '{date2.year}-{date2.month}-{date2.day}';",conn)
 		if len(df)<10:
 			date_now=datetime.now()
@@ -3647,7 +3647,7 @@ def just_map_hex(response):
 		usa_hex_2 AS hexes \
 		INNER JOIN \
 		otr_data_loads AS odl \
-		ON ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry) where odl.delivery_date \
+		ON ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry) where odl.status='RELEASED' AND  odl.delivery_date \
 				BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND '{date_now.year}-{date_now.month}-{date_now.day}';",conn)
 
 	else:
@@ -3659,7 +3659,7 @@ def just_map_hex(response):
 	usa_hex_2 AS hexes \
 	INNER JOIN \
 	otr_data_loads AS odl \
-	ON ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry) where odl.delivery_date \
+	ON ST_Intersects(odl.destination_geography::geometry, hexes.geom::geometry) where odl.status='RELEASED' AND  odl.delivery_date \
 			BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND '{date_now.year}-{date_now.month}-{date_now.day}';",conn)
 
 	df_map=df.groupby(['origin_lat','origin_lng',
@@ -3916,7 +3916,7 @@ def just_map_hexagons(response):
 		otr_data_loads AS odl \
 		ON {intersect} \
 		LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
-			where {dates_sql} \
+			where  odl.status='RELEASED' AND {dates_sql} \
 			AND ( {st_ct_sql} \
 			);",conn)
 
@@ -4043,12 +4043,12 @@ def just_map_hexagons(response):
 	# 				odl.origin_city IN ({origin_ct}) \
 	# 			);",conn)
 
-	df['legal_name'] = df['legal_name'].fillna('Independent')
+	df['legal_name'] = df['legal_name'].fillna('INDEPENDENT')
 	df['c411_trucks'] = df['c411_trucks'].fillna(0)
 	df['geom'] = gp.GeoSeries.from_wkt(df['geom'])
 	gdf = gp.GeoDataFrame(df, geometry='geom')
 	df_map=df.groupby(['tile_id']).agg({"id": "count","geom":"first","destination_city":"first"}).reset_index()
-	# df1['legal_name'] = df1['legal_name'].fillna('Independent')
+	# df1['legal_name'] = df1['legal_name'].fillna('INDEPENDENT')
 	# df1['c411_trucks'] = df1['c411_trucks'].fillna(0)
 	# df_map1=df1.groupby(['tile_id']).agg({"id": "count","geom":"first","destination_city":"first"}).reset_index()
 
@@ -4220,7 +4220,7 @@ def just_map_carrier_api2(response):
 	destination_ct=str(destination_ct)[1:-1]
 	dfx=pd.read_sql(f"select carr.legal_name  as legal_name from otr_data_loads AS odl \
 	LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id \
-	where  \
+	where   odl.status='RELEASED' AND \
 				odl.origin_state IN ({origin_st}) AND \
 					odl.origin_city IN ({origin_ct}) AND\
 						odl.destination_state IN ({destination_st}) AND\
@@ -4311,7 +4311,7 @@ def just_map_tile_id(response):
                LEFT JOIN otr_loads_eq_type et ON odl.equipment_type_id = et.id \
                    LEFT JOIN otr_loads_eq_group eg ON et.equipment_group_id = eg.id \
 			FULL JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
-				where hexes.tile_id='{tile_id}' AND \
+				where odl.status='RELEASED' AND hexes.tile_id='{tile_id}' AND \
 					{dates_sql} {orderby_sql} ;",conn,
 				parse_dates={'booked_on': {'format': '%Y-%m-%d'},
 			'picked_up_by': {'format': '%Y-%m-%d'},
@@ -4322,7 +4322,7 @@ def just_map_tile_id(response):
 	desc=str(desc)[1:-1].replace(","," ")
 	
 	df['equipment_type_id']=df['equipment_type_id'].fillna('UNKNOWN')
-	df['legal_name']=df['legal_name'].fillna('Independent')
+	df['legal_name']=df['legal_name'].fillna('INDEPENDENT')
 	df=df[~df['delivery_date'].astype(str).str.startswith('N')]
 	df['created_week']=df['delivery_date'].apply(lambda x : x.strftime("%U"))#%U#%W
 	df['created_week']=df['created_week'].astype(int)
@@ -4416,6 +4416,7 @@ def just_map_tile_id(response):
 	df=df[df['destination_data'].notnull()]
 	df_map=df.groupby(['origin_data','destination_data']).agg({"id": "count"}).reset_index()
 	df_map=df_map.sort_values(by=['id'],ascending=False)
+	df_map=df_map[0:12]
 	chord_data=[]
 	for i in df_map.itertuples():
 		chord_data.append({"from":i[1],
@@ -4450,8 +4451,6 @@ def just_map_deadhead(response):
 	dist=response.GET.get('dist',None)
 	dist=int(dist)
 	dist=804.5 * dist#80450
-	dist= int(dist)
-	dist=str(dist)
 	date_now=datetime.now()
 	date_ago = datetime.today() - timedelta(days=60)
 	"""
@@ -4463,21 +4462,38 @@ def just_map_deadhead(response):
 	 FROM import.trucks_raw where cast(created_week as int)>12 and \
 		cast(created_week as int)<17 and origin_zone!='x'",con=conn) 
 	"""
-	df=pd.read_sql(f"SELECT odl.*, ST_AsText(odl.origin_geography) as origin_geom, \
+	# df=pd.read_sql(f"SELECT odl.*, ST_AsText(odl.destination_geography) as destination_geom, \
+	# 		ST_AsText(odl.lane_line_str) as lane_geom, \
+	# 			carr.legal_name, carr.c411_trucks,otr_cust.name as customer_name \
+	# 		FROM \
+	# 		otr_data_loads AS odl \
+	# 		LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
+	# 			INNER JOIN otr_data_customers AS otr_cust ON  odl.customer_id=otr_cust.id   \
+	# 			where odl.status='RELEASED' AND ST_DWithin(odl.destination_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, {dist}) \
+	# 				AND odl.delivery_date \
+	# 				BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND \
+	# 					'{date_now.year}-{date_now.month}-{date_now.day}';",conn,
+	# 			parse_dates={'booked_on': {'format': '%Y-%m-%d'},
+	# 		'picked_up_by': {'format': '%Y-%m-%d'},
+	# 		'delivery_date': {'format': '%Y-%m-%d'}})
+	df=pd.read_sql(f"SELECT odl.delivery_date,odl.destination_geography,odl.id, \
+				odl.carrier_id,odl.carrier_total_rate as rate, \
+					ST_AsText(odl.destination_geography) as destination_geom, \
 			ST_AsText(odl.lane_line_str) as lane_geom, \
 				carr.legal_name, carr.c411_trucks,otr_cust.name as customer_name \
 			FROM \
 			otr_data_loads AS odl \
 			LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
 				INNER JOIN otr_data_customers AS otr_cust ON  odl.customer_id=otr_cust.id   \
-				where ST_DWithin(odl.origin_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, {dist}) \
+				where odl.status='RELEASED' AND ST_DWithin(odl.destination_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, {dist}) \
 					AND odl.delivery_date \
 					BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND \
 						'{date_now.year}-{date_now.month}-{date_now.day}';",conn,
 				parse_dates={'booked_on': {'format': '%Y-%m-%d'},
 			'picked_up_by': {'format': '%Y-%m-%d'},
 			'delivery_date': {'format': '%Y-%m-%d'}})
-	df['legal_name'] = df['legal_name'].fillna('Independent')
+	df['legal_name'] = df['legal_name'].fillna('INDEPENDENT')
+	df['rate'] = df['rate'].fillna(0)
 
 	df=df[~df['delivery_date'].astype(str).str.startswith('N')]
 	df['created_week']=df['delivery_date'].apply(lambda x : x.strftime("%U"))#%U#%W
@@ -4493,44 +4509,62 @@ def just_map_deadhead(response):
 	df['created_year']=df['created_year'].astype(int)
 	df['created_week']=df['created_week'].astype(int)
 
-	df['origin_geom'] = gp.GeoSeries.from_wkt(df['origin_geom'])
-	df_select=df.groupby(['origin_geography','year_week_str']).agg({"id": "count",'origin_geom':'first'}).reset_index()
-	df_select=df_select.groupby(['origin_geography']).agg({"id": "mean",'origin_geom':'first'}).reset_index()
+	df['destination_geom'] = gp.GeoSeries.from_wkt(df['destination_geom'])
+	# df_select=df.groupby(['destination_geography','year_week_str']).agg({"id": "count",'destination_geom':'first'}).reset_index()
+	df_select=df.groupby(['destination_geography']).agg({"id": "count",'destination_geom':'first'}).reset_index()
+	# df_select=df_select.groupby(['destination_geography']).agg({"id": "sum",'destination_geom':'first'}).reset_index()
 	df_select=df_select.sort_values(by=['id'],ascending=False)
 	df_select=df_select[0:20]
-	origin_geography=df_select['origin_geography']
+	destination_geography=df_select['destination_geography']
 
-	lst = range(1,10)
-	ranges=np.array_split(lst, 3)
-	chart_colors=['#f21111','#884EA0','#3498DB','#1ABC9C','#1E8449','#F1C40F','#F39C12','#E67E22','#BA4A00','#00b300','#82E0AA','#f02ef0']
+	# lst = range(1,10)
+	# ranges=np.array_split(lst, 3)
+	# chart_colors=['#f21111','#884EA0','#3498DB','#1ABC9C','#1E8449','#F1C40F','#F39C12','#E67E22','#BA4A00','#00b300','#82E0AA','#f02ef0']
  
+	# lines=[]
+	# for i in df_select['destination_geography'].unique().tolist():
+	# 	df_tmp=df_select[df_select['destination_geography']==i]
+	# 	df_tmp1=df[df['destination_geography']==i]['legal_name'].values.tolist()
+	# 	if len(df_tmp1)>0:
+	# 		df_tmp1=[x for x in df_tmp1 if x]
+	# 		df_tmp1=sorted(list(set(df_tmp1)))
+	# 	if len(df_tmp)>0:
+	# 		avg=df_tmp['id'].mean()
+	# 		lat2=df_tmp['destination_geom'].values[0].y
+	# 		lon2=df_tmp['destination_geom'].values[0].x
+	# 	else:
+	# 		lat2=0.0
+	# 		lon2=0.0
+	# 		avg=1
+	# 	clr_ind=None
+	# 	for k in enumerate(ranges):
+	# 		if int(avg) in k[1]:
+	# 			clr_ind=k[0]
+	# 			break
+	# 	if clr_ind!=0 and not clr_ind:
+	# 		clr_ind=11
+	# 	point1 = Point(float(lon),float(lat))#lon.lat
+	# 	point2 = Point(float(lon2),float(lat2))
+	# 	angle1,angle2,distance = geod.inv(point1.x, point1.y, point2.x, point2.y)
+	# 	lines.append([[lat,lon],[lat2,lon2],int(avg),chart_colors[clr_ind],int(distance/1000),df_tmp1])
 	lines=[]
-	for i in df_select['origin_geography'].unique().tolist():
-		df_tmp=df_select[df_select['origin_geography']==i]
-		df_tmp1=df[df['origin_geography']==i]['legal_name'].values.tolist()
-		if len(df_tmp1)>0:
-			df_tmp1=[x for x in df_tmp1 if x]
-			df_tmp1=sorted(list(set(df_tmp1)))
-		if len(df_tmp)>0:
-			avg=df_tmp['id'].mean()
-			lat2=df_tmp['origin_geom'].values[0].y
-			lon2=df_tmp['origin_geom'].values[0].x
+	for i in df_select.itertuples():
+		tmp=df[df['destination_geography']==i[1]]
+		tmp_map=tmp.groupby(['legal_name']).agg({'rate':"mean","id": "count",}).reset_index()
+		tmp_map=tmp_map[0:10]
+		tmp_map['rate']=tmp_map['rate'].astype(int)
+		if len(tmp)>0:
+			avg=1#tmp['delivery_date'].mean()
+			lat2=tmp['destination_geom'].values[0].y
+			lon2=tmp['destination_geom'].values[0].x
 		else:
 			lat2=0.0
 			lon2=0.0
 			avg=1
-		clr_ind=None
-		for k in enumerate(ranges):
-			if int(avg) in k[1]:
-				clr_ind=k[0]
-				break
-		if clr_ind!=0 and not clr_ind:
-			clr_ind=11
 		point1 = Point(float(lon),float(lat))#lon.lat
 		point2 = Point(float(lon2),float(lat2))
 		angle1,angle2,distance = geod.inv(point1.x, point1.y, point2.x, point2.y)
-		lines.append([[lat,lon],[lat2,lon2],int(avg),chart_colors[clr_ind],int(distance/1000),df_tmp1])
-	
+		lines.append([0,[lat2,lon2],int(avg),0,int(distance/1000),tmp_map.values.tolist(),int(i[2])])
 	data={"lines":lines}
 	return JsonResponse(data)
 
@@ -4540,7 +4574,7 @@ def test(response):
 	return JsonResponse(data)
 
 @xframe_options_exempt
-def just_map_loads_deadhead(response):
+def just_map_loads_deadhead1(response):
 	lon=response.GET.get('lon',None)
 	lat=response.GET.get('lat',None)
 	dist=response.GET.get('dist',None)
@@ -4561,7 +4595,7 @@ def just_map_loads_deadhead(response):
 	# 			parse_dates={'booked_on': {'format': '%Y-%m-%d'},
 	# 		'picked_up_by': {'format': '%Y-%m-%d'},
 	# 		'delivery_date': {'format': '%Y-%m-%d'}})
-	# df['legal_name'] = df['legal_name'].fillna('Independent')
+	# df['legal_name'] = df['legal_name'].fillna('INDEPENDENT')
 
 	# df=df[~df['delivery_date'].astype(str).str.startswith('N')]
 	# df['created_week']=df['delivery_date'].apply(lambda x : x.strftime("%U"))#%U#%W
@@ -4636,21 +4670,21 @@ def just_map_loads_deadhead(response):
 	# 	# lines.append([[lat11,lon11],[lat22,lon22],int(avg),chart_colors[1],int(distance/1000),desc])
 
 	lines=[]
-	df=pd.read_sql(f"SELECT odl.*, ST_AsText(odl.destination_geography) as destination_geom, \
+	df=pd.read_sql(f"SELECT odl.*, ST_AsText(odl.origin_geography) as origin_geom, \
 			ST_AsText(odl.lane_line_str) as lane_geom, \
 				carr.legal_name, carr.c411_trucks,otr_cust.name as customer_name \
 			FROM \
 			otr_data_loads AS odl \
 			LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
 				INNER JOIN otr_data_customers AS otr_cust ON  odl.customer_id=otr_cust.id   \
-				where ST_DWithin(odl.destination_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 80450) \
+				where odl.status='RELEASED' AND ST_DWithin(odl.origin_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 80450) \
 					AND odl.delivery_date \
 					BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND \
 						'{date_now.year}-{date_now.month}-{date_now.day}';",conn,
 				parse_dates={'booked_on': {'format': '%Y-%m-%d'},
 			'picked_up_by': {'format': '%Y-%m-%d'},
 			'delivery_date': {'format': '%Y-%m-%d'}})
-	df['legal_name'] = df['legal_name'].fillna('Independent')
+	df['legal_name'] = df['legal_name'].fillna('INDEPENDENT')
 
 	df=df[~df['delivery_date'].astype(str).str.startswith('N')]
 	df['created_week']=df['delivery_date'].apply(lambda x : x.strftime("%U"))#%U#%W
@@ -4666,12 +4700,12 @@ def just_map_loads_deadhead(response):
 	df['created_year']=df['created_year'].astype(int)
 	df['created_week']=df['created_week'].astype(int)
 
-	df['destination_geom'] = gp.GeoSeries.from_wkt(df['destination_geom'])
+	df['origin_geom'] = gp.GeoSeries.from_wkt(df['origin_geom'])
 	df['lane_geom'] = gp.GeoSeries.from_wkt(df['lane_geom'])
-	df_select=df.groupby(['destination_geography','year_week_str']).agg({"id": "count",
-	'destination_geom':'first','lane_geom':'first'}).reset_index()
-	df_select=df_select.groupby(['destination_geography']).agg({"id": "mean",
-	'destination_geom':'first','lane_geom':'first'}).reset_index()
+	df_select=df.groupby(['origin_geography','year_week_str']).agg({"id": "count",
+	'origin_geom':'first','lane_geom':'first'}).reset_index()
+	df_select=df_select.groupby(['origin_geography']).agg({"id": "mean",
+	'origin_geom':'first','lane_geom':'first'}).reset_index()
 	df_select=df_select.sort_values(by=['id'],ascending=False)
 	df_select=df_select[0:20]
 	df_select=df_select.reset_index()
@@ -4680,9 +4714,9 @@ def just_map_loads_deadhead(response):
 	ranges=np.array_split(lst, 3)
 	chart_colors=['#f21111','#884EA0','#3498DB','#1ABC9C','#1E8449','#F1C40F','#F39C12','#E67E22','#BA4A00','#00b300','#82E0AA','#f02ef0']
  
-	for i in df_select['destination_geography'].unique().tolist():
-		df_tmp=df_select[df_select['destination_geography']==i]
-		df_tmp1=df[df['destination_geography']==i]['legal_name'].values.tolist()
+	for i in df_select['origin_geography'].unique().tolist():
+		df_tmp=df_select[df_select['origin_geography']==i]
+		df_tmp1=df[df['origin_geography']==i]['legal_name'].values.tolist()
 		if len(df_tmp1)>0:
 			df_tmp1=[x for x in df_tmp1 if x]
 			# df_tmp1=sorted(list(set(df_tmp1)))
@@ -4692,8 +4726,8 @@ def just_map_loads_deadhead(response):
 			desc=str(desc)[1:-1].replace(","," ")
 		if len(df_tmp)>0:
 			avg=df_tmp['id'].mean()
-			lat2=df_tmp['destination_geom'].values[0].y
-			lon2=df_tmp['destination_geom'].values[0].x
+			lat2=df_tmp['origin_geom'].values[0].y
+			lon2=df_tmp['origin_geom'].values[0].x
 			lat11=df_tmp['lane_geom'].values[0].coords[0][1]
 			lon11=df_tmp['lane_geom'].values[0].coords[0][0]
 			lat22=df_tmp['lane_geom'].values[0].coords[1][1]
@@ -4869,16 +4903,82 @@ def just_heat_chart_v2_api(response):
 		"heat_series":heats})
 
 @xframe_options_exempt
-def just_map_deadhead_lines(response):
+def just_map_deadhead_rig_lines(response):
+	lon=response.GET.get('lon',None)
+	lat=response.GET.get('lat',None)
+	date_now=datetime.now()
+	date_ago = datetime.today() - timedelta(days=60)
+	# outgoing_sql=f" (ST_DWithin(odl.origin_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 6045) \
+	# 	OR ST_DWithin(odl.destination_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 100)) "
+	# outgoing_sql=f" ST_DWithin(odl.destination_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 100) "
+	# df1=pd.read_sql(f"SELECT MAX(odl.delivery_date) AS delivery_date, \
+	# 	COALESCE(ST_AsText(odl.lane_line_str)) as lane_geom  \
+	# 	FROM \
+	# 	otr_data_loads AS odl \
+	# 		where odl.status='RELEASED' AND {outgoing_sql} AND odl.lane_line_str IS NOT NULL \
+	# 				group by odl.lane_line_str \
+	# 				order by count(odl.id) desc LIMIT 50 ;",conn)
+	# df1['lane_geom'] = gp.GeoSeries.from_wkt(df1['lane_geom'])
+	# chart_colors=["#1F78B4",
+	# 		"#00278C",
+	# 		"#B2DF8A",
+	# 		"#33A02C",
+	# 		"#FB9A99",
+	# 		"#E31A1C",
+	# 		"#FDBF6F",
+	# 		"#FF7F00",
+	# 		"#CAB2D6",
+	# 		"#6A3D9A",
+	# 		"#949D00",
+	# 		"#666666"]
+	# lines=[]
+	# for i in df1.itertuples():
+	# 	c=i[2].coords
+	# 	point1 = Point(float(c[0][0]),float(c[0][1]))#lon.lat
+	# 	point2 = Point(float(c[1][0]),float(c[1][1]))
+	# 	angle1,angle2,distance = geod.inv(point1.x, point1.y, point2.x, point2.y)
+	# 	# lines.append([[float(lat),float(lon)],[c[1][1],c[1][0]],0,"#5035fc",int(distance/1000),"desc"])
+	# 	lines.append([[c[0][1],c[0][0]],[c[1][1],c[1][0]],0,"#5035fc",int(distance/1000),"desc"])
+	outgoing_sql=f" ST_DWithin(odl.destination_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 100) "
+	df1=pd.read_sql(f"SELECT odl.id,odl.delivery_date, \
+					odl.origin_data,odl.destination_data, \
+		COALESCE(ST_AsText(odl.lane_line_str)) as lane_geom  \
+		FROM \
+		otr_data_loads AS odl \
+			where odl.status='RELEASED' AND {outgoing_sql} AND odl.lane_line_str IS NOT NULL \
+				AND odl.delivery_date \
+					BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND \
+						'{date_now.year}-{date_now.month}-{date_now.day}' LIMIT 100;",conn)
+	df1['lane_geom_str'] = df1['lane_geom']
+	df1['lane_geom'] = gp.GeoSeries.from_wkt(df1['lane_geom'])
+	# 	df=df[~df['delivery_date'].astype(str).str.startswith('N')]
+	df_map=df1.groupby(['lane_geom_str']).agg({'lane_geom':"first","id": "count",
+											"origin_data":"first","destination_data":"first"}).reset_index()
+	df_map=df_map[0:20]
+	lines=[]
+	for i in df_map.itertuples():
+		c=i[2].coords
+		point1 = Point(float(c[0][0]),float(c[0][1]))#lon.lat
+		point2 = Point(float(c[1][0]),float(c[1][1]))
+		angle1,angle2,distance = geod.inv(point1.x, point1.y, point2.x, point2.y)
+		# lines.append([[float(lat),float(lon)],[c[1][1],c[1][0]],0,"#5035fc",int(distance/1000),"desc"])
+		lines.append([[c[0][1],c[0][0]],[c[1][1],c[1][0]],0,"#5035fc",int(distance/1000),[i[4],i[5]]])
+
+	data={"lines":lines}
+	return JsonResponse(data)
+
+@xframe_options_exempt
+def just_map_deadhead_lines1(response):
 	lon=response.GET.get('lon',None)
 	lat=response.GET.get('lat',None)
 	outgoing_sql=f" (ST_DWithin(odl.origin_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 6045) \
 		OR ST_DWithin(odl.destination_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 100)) "
+	outgoing_sql=f" ST_DWithin(odl.origin_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 100) "
 	df1=pd.read_sql(f"SELECT MAX(odl.delivery_date) AS delivery_date, \
 		COALESCE(ST_AsText(odl.lane_line_str)) as lane_geom  \
 		FROM \
 		otr_data_loads AS odl \
-			where {outgoing_sql} AND odl.lane_line_str IS NOT NULL \
+			where odl.status='RELEASED' AND {outgoing_sql} AND odl.lane_line_str IS NOT NULL \
 					group by odl.lane_line_str \
 					order by count(odl.id) desc LIMIT 50 ;",conn)
 	df1['lane_geom'] = gp.GeoSeries.from_wkt(df1['lane_geom'])
@@ -4906,7 +5006,213 @@ def just_map_deadhead_lines(response):
 	data={"lines":lines}
 	return JsonResponse(data)
 
+@xframe_options_exempt
+def just_map_loads_deadhead(response):
+	lon=response.GET.get('lon',None)
+	lat=response.GET.get('lat',None)
+	dist=response.GET.get('dist',None)
+	print(dist)
+	dist=int(dist)
+	dist=804.5 * dist#80450
+	date_now=datetime.now()
+	date_ago = datetime.today() - timedelta(days=90)
+	"""
+	df=pd.read_sql("SELECT asset_assetId,\
+		asset_equipment_origin_place_namedcoordinates_latitude,\
+		asset_equipment_origin_place_namedcoordinates_longitude,\
+		asset_equipment_origin_namedcoordinates_latitude,\
+		asset_equipment_origin_namedcoordinates_longitude\
+	 FROM import.trucks_raw where cast(created_week as int)>12 and \
+		cast(created_week as int)<17 and origin_zone!='x'",con=conn) 
+	"""
+	# df=pd.read_sql(f"SELECT odl.*, ST_AsText(odl.origin_geography) as origin_geom, \
+	# 		ST_AsText(odl.lane_line_str) as lane_geom, \
+	# 			carr.legal_name, carr.c411_trucks,otr_cust.name as customer_name \
+	# 		FROM \
+	# 		otr_data_loads AS odl \
+	# 		LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
+	# 			INNER JOIN otr_data_customers AS otr_cust ON  odl.customer_id=otr_cust.id   \
+	# 			where odl.status='RELEASED' AND ST_DWithin(odl.origin_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, {dist}) \
+	# 				AND odl.delivery_date \
+	# 				BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND \
+	# 					'{date_now.year}-{date_now.month}-{date_now.day}';",conn,
+	# 			parse_dates={'booked_on': {'format': '%Y-%m-%d'},
+	# 		'picked_up_by': {'format': '%Y-%m-%d'},
+	# 		'delivery_date': {'format': '%Y-%m-%d'}})
+	df=pd.read_sql(f"SELECT odl.delivery_date,odl.origin_geography,odl.id, \
+				odl.carrier_id,odl.customer_rate as rate, \
+					ST_AsText(odl.origin_geography) as origin_geom, \
+			ST_AsText(odl.lane_line_str) as lane_geom, \
+				carr.legal_name, carr.c411_trucks,otr_cust.name as customer_name \
+			FROM \
+			otr_data_loads AS odl \
+			LEFT JOIN carrier_otr AS carr ON  odl.carrier_id=carr.id   \
+				INNER JOIN otr_data_customers AS otr_cust ON  odl.customer_id=otr_cust.id   \
+				where odl.status='RELEASED' AND ST_DWithin(odl.origin_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, {dist}) \
+					AND odl.delivery_date \
+					BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND \
+						'{date_now.year}-{date_now.month}-{date_now.day}';",conn,
+				parse_dates={'booked_on': {'format': '%Y-%m-%d'},
+			'picked_up_by': {'format': '%Y-%m-%d'},
+			'delivery_date': {'format': '%Y-%m-%d'}})
+	df['legal_name'] = df['legal_name'].fillna('INDEPENDENT')
+	df['rate'] = df['rate'].fillna(0)
+	df=df[~df['delivery_date'].astype(str).str.startswith('N')]
+	df['created_week']=df['delivery_date'].apply(lambda x : x.strftime("%U"))#%U#%W
+	df['created_week']=df['created_week'].astype(int)
+	df['created_year']=df['delivery_date'].apply(lambda x : x.strftime("%Y"))
+	df['created_year']=df['created_year'].astype(int)
+	df['created_month']=df['delivery_date'].apply(lambda x : x.strftime("%B"))
+	df['created_month_num']=df['delivery_date'].apply(lambda x : x.strftime("%m"))
+	df['created_month_num']=df['created_month_num'].astype(int)
+	df['created_year']=df['created_year'].astype(str)
+	df['created_week']=df['created_week'].astype(str)
+	df['year_week_str']=df[['created_year', 'created_week']].agg(' Week '.join, axis=1)
+	df['created_year']=df['created_year'].astype(int)
+	df['created_week']=df['created_week'].astype(int)
 
+	df['origin_geom'] = gp.GeoSeries.from_wkt(df['origin_geom'])
+	# df_select=df.groupby(['origin_geography','year_week_str']).agg({"id": "count",'origin_geom':'first'}).reset_index()
+	df_select=df.groupby(['origin_geography']).agg({"id": "count",'origin_geom':'first'}).reset_index()
+	# df_select=df_select.groupby(['origin_geography']).agg({"id": "sum",'origin_geom':'first'}).reset_index()
+	df_select=df_select.sort_values(by=['id'],ascending=False)
+	df_select=df_select[0:20]
+	origin_geography=df_select['origin_geography']
+
+	# lst = range(1,10)
+	# ranges=np.array_split(lst, 3)
+	# chart_colors=['#f21111','#884EA0','#3498DB','#1ABC9C','#1E8449','#F1C40F','#F39C12','#E67E22','#BA4A00','#00b300','#82E0AA','#f02ef0']
+ 
+	# lines=[]
+	# for i in df_select['origin_geography'].unique().tolist():
+	# 	df_tmp=df_select[df_select['origin_geography']==i]
+	# 	df_tmp1=df[df['origin_geography']==i]['legal_name'].values.tolist()
+	# 	if len(df_tmp1)>0:
+	# 		df_tmp1=[x for x in df_tmp1 if x]
+	# 		df_tmp1=sorted(list(set(df_tmp1)))
+	# 	if len(df_tmp)>0:
+	# 		avg=df_tmp['id'].mean()
+	# 		lat2=df_tmp['origin_geom'].values[0].y
+	# 		lon2=df_tmp['origin_geom'].values[0].x
+	# 	else:
+	# 		lat2=0.0
+	# 		lon2=0.0
+	# 		avg=1
+	# 	clr_ind=None
+	# 	for k in enumerate(ranges):
+	# 		if int(avg) in k[1]:
+	# 			clr_ind=k[0]
+	# 			break
+	# 	if clr_ind!=0 and not clr_ind:
+	# 		clr_ind=11
+	# 	point1 = Point(float(lon),float(lat))#lon.lat
+	# 	point2 = Point(float(lon2),float(lat2))
+	# 	angle1,angle2,distance = geod.inv(point1.x, point1.y, point2.x, point2.y)
+	# 	lines.append([[lat,lon],[lat2,lon2],int(avg),chart_colors[clr_ind],int(distance/1000),df_tmp1])
+	lines=[]
+	for i in df_select.itertuples():
+		tmp=df[df['origin_geography']==i[1]]
+		tmp_map=tmp.groupby(['customer_name']).agg({'rate':"mean","id": "count",}).reset_index()
+		tmp_map=tmp_map[0:10]
+		tmp_map['rate']=tmp_map['rate'].astype(int)
+		if len(tmp)>0:
+			avg=1#tmp['delivery_date'].mean()
+			lat2=tmp['origin_geom'].values[0].y
+			lon2=tmp['origin_geom'].values[0].x
+		else:
+			lat2=0.0
+			lon2=0.0
+			avg=1
+		point1 = Point(float(lon),float(lat))#lon.lat
+		point2 = Point(float(lon2),float(lat2))
+		angle1,angle2,distance = geod.inv(point1.x, point1.y, point2.x, point2.y)
+		lines.append([0,[lat2,lon2],int(avg),0,int(distance/1000),tmp_map.values.tolist(),int(i[2])])
+	data={"lines":lines}
+	return JsonResponse(data)
+
+@xframe_options_exempt
+def just_map_deadhead_lines(response):
+	lon=response.GET.get('lon',None)
+	lat=response.GET.get('lat',None)
+	date_now=datetime.now()
+	date_ago = datetime.today() - timedelta(days=90)
+	# outgoing_sql=f" (ST_DWithin(odl.origin_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 6045) \
+	# 	OR ST_DWithin(odl.origin_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 100)) "
+	# outgoing_sql=f" ST_DWithin(odl.origin_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 100) "
+	# df1=pd.read_sql(f"SELECT MAX(odl.delivery_date) AS delivery_date, \
+	# 	COALESCE(ST_AsText(odl.lane_line_str)) as lane_geom  \
+	# 	FROM \
+	# 	otr_data_loads AS odl \
+	# 		where odl.status='RELEASED' AND {outgoing_sql} AND odl.lane_line_str IS NOT NULL \
+	# 				group by odl.lane_line_str \
+	# 				order by count(odl.id) desc LIMIT 50 ;",conn)
+	# df1['lane_geom'] = gp.GeoSeries.from_wkt(df1['lane_geom'])
+	# chart_colors=["#1F78B4",
+	# 		"#00278C",
+	# 		"#B2DF8A",
+	# 		"#33A02C",
+	# 		"#FB9A99",
+	# 		"#E31A1C",
+	# 		"#FDBF6F",
+	# 		"#FF7F00",
+	# 		"#CAB2D6",
+	# 		"#6A3D9A",
+	# 		"#949D00",
+	# 		"#666666"]
+	# lines=[]
+	# for i in df1.itertuples():
+	# 	c=i[2].coords
+	# 	point1 = Point(float(c[0][0]),float(c[0][1]))#lon.lat
+	# 	point2 = Point(float(c[1][0]),float(c[1][1]))
+	# 	angle1,angle2,distance = geod.inv(point1.x, point1.y, point2.x, point2.y)
+	# 	# lines.append([[float(lat),float(lon)],[c[1][1],c[1][0]],0,"#5035fc",int(distance/1000),"desc"])
+	# 	lines.append([[c[0][1],c[0][0]],[c[1][1],c[1][0]],0,"#5035fc",int(distance/1000),"desc"])
+	outgoing_sql=f" ST_DWithin(odl.origin_geography::geography, 'SRID=4326;POINT({lon} {lat})'::geography, 100) "
+	df1=pd.read_sql(f"SELECT odl.id,odl.delivery_date, \
+					odl.origin_data,odl.destination_data, \
+		COALESCE(ST_AsText(odl.lane_line_str)) as lane_geom  \
+		FROM \
+		otr_data_loads AS odl \
+			where odl.status='RELEASED' AND {outgoing_sql} AND odl.lane_line_str IS NOT NULL \
+				AND odl.delivery_date \
+					BETWEEN '{date_ago.year}-{date_ago.month}-{date_ago.day}' AND \
+						'{date_now.year}-{date_now.month}-{date_now.day}' LIMIT 100;",conn)
+	df1['lane_geom_str'] = df1['lane_geom']
+	df1['lane_geom'] = gp.GeoSeries.from_wkt(df1['lane_geom'])
+	# 	df=df[~df['delivery_date'].astype(str).str.startswith('N')]
+	df_map=df1.groupby(['lane_geom_str']).agg({'lane_geom':"first","id": "count",
+											"origin_data":"first","destination_data":"first"}).reset_index()
+	df_map=df_map[0:20]
+	lines=[]
+	for i in df_map.itertuples():
+		c=i[2].coords
+		point1 = Point(float(c[0][0]),float(c[0][1]))#lon.lat
+		point2 = Point(float(c[1][0]),float(c[1][1]))
+		angle1,angle2,distance = geod.inv(point1.x, point1.y, point2.x, point2.y)
+		# lines.append([[float(lat),float(lon)],[c[1][1],c[1][0]],0,"#5035fc",int(distance/1000),"desc"])
+		lines.append([[c[0][1],c[0][0]],[c[1][1],c[1][0]],0,"#5035fc",int(distance/1000),[i[4],i[5]]])
+
+	data={"lines":lines}
+	return JsonResponse(data)
+
+@xframe_options_exempt
+def just_map_heat_chart_click(response):
+	lane=response.GET.get('lane',None)
+	date_str=response.GET.get('date_str',None)
+	df=df_gd.copy()
+	df=df_gd[df_gd['travel_data']==lane]
+
+	shipper=df.groupby(['shipper']).agg({"id": "count",
+										'duration':'mean',
+										'buy_cost':'mean'}).reset_index()
+
+	customer=df.groupby(['customer']).agg({"id": "count",
+										'duration':'mean',
+										'customer_rate':'mean'}).reset_index()
+	customer['duration']=customer['duration'].astype(int)
+	customer['customer_rate']=customer['customer_rate'].astype(int)
+	data={"data":customer.values.tolist()}
+	return JsonResponse(data)
 
 
 
