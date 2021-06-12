@@ -5209,9 +5209,20 @@ def just_map_heat_chart_click(response):
 	customer=df.groupby(['customer']).agg({"id": "count",
 										'duration':'mean',
 										'customer_rate':'mean'}).reset_index()
+	carrier=df.groupby(['carrier']).agg({"id": "count",
+										'duration':'mean',
+										'buy_cost':'mean'}).reset_index()
+	carrier=carrier.sort_values(by=['id'],ascending=False)[0:6]
 	customer['duration']=customer['duration'].astype(int)
 	customer['customer_rate']=customer['customer_rate'].astype(int)
-	data={"data":customer.values.tolist()}
+	shipper['duration']=shipper['duration'].astype(int)
+	shipper['buy_cost']=shipper['buy_cost'].astype(int)
+	carrier['duration']=carrier['duration'].astype(int)
+	carrier['buy_cost']=carrier['buy_cost'].astype(int)
+	data={"data":customer.values.tolist(),
+		"customer":customer.values.tolist(),
+		"shipper":shipper.values.tolist(),
+		"carrier":carrier.values.tolist(),}
 	return JsonResponse(data)
 
 
